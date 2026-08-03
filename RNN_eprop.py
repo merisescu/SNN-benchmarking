@@ -13,13 +13,13 @@ val_split = 0.1 # proportion of training data to use for validation, is not trai
 n_record = 1  # number of neurons to record dynamic variables from - this script requires n_record >= 1
 n_record_w = 5  # number of senders and targets to record weights from - this script requires n_record_w >=1
 
+batch_size = 128 # number of items to train on per training/validation iteration
 n_iter_train = 20 # number of training iterations, 200 for convergence
 n_iter_test = 2  # number of iterations for final test
 do_early_stopping = False  # if True, stop training as soon as stop criterion fulfilled
 n_iter_validate_every = 10  # number of training iterations before validation
 n_iter_early_stop = 8  # number of iterations to average over to evaluate early stopping condition
 stop_crit = 0.07  # error value corresponding to stop criterion for early stopping
-batch_size = 128 # number of items to train on per training/validation iteration
 
 # possible hyperparameters
 adaptive = False # if True, use adaptive LIF neurons, else standard LIF neurons
@@ -47,6 +47,7 @@ import os
 import time
 import gc
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import cnsplots as cns
 import tonic
@@ -483,7 +484,7 @@ class TrainingPipeline:
         self.current_index = (self.current_index + batch_size) % len(idx)
 
         # filter out inactive pixels and return as flattened array n, relative_times
-        # TODO: switch to hashing pixels
+        # TODO: switch to hashing pixels, current method too slow
         images_group = [[] for _ in selected_indices]
         #print(selected_indices)
         #print(len(images_group))
@@ -634,3 +635,172 @@ events_sr_rec = sr_rec.get("events")
 events_wr = wr.get("events")
 
 #%% Visualisation
+
+colors = {
+    "blue": "#2854c5ff",
+    "red": "#e04b40ff",
+    "green": "#25aa2cff",
+    "gold": "#f9c643ff",
+    "white": "#ffffffff",
+}
+
+plt.rcParams.update(
+    {
+        "axes.spines.right": False,
+        "axes.spines.top": False,
+        "axes.prop_cycle": cycler(color=[colors[k] for k in ["blue", "red", "green", "gold"]]),
+    }
+)
+
+
+fig, axs = plt.subplots(2, 1, sharex=True)
+fig.suptitle("Learning performance")
+
+for color, label in zip(colors, set(results_dict["label"])):
+    idc = results_dict["label"] == label
+    axs[0].scatter(results_dict["iteration"][idc], results_dict["loss"][idc], label=label)
+    axs[1].scatter(results_dict["iteration"][idc], results_dict["error"][idc], label=label)
+
+axs[0].set_ylabel(r"$\mathcal{L} = \frac{1}{2} \sum_{t,k} \left( y_k^t -y_k^{*,t}\right)^2$")
+axs[1].set_ylabel("error")
+
+axs[-1].set_xlabel("iteration")
+axs[-1].legend(bbox_to_anchor=(1.05, 0.5), loc="center left")
+axs[-1].xaxis.get_major_locator().set_params(integer=True)
+
+fig.tight_layout()
+
+#%%
+
+def plot_recordable(ax, events, recordable, ylabel, xlims):
+    for sender in np.unique(events["senders"]):
+        idc_sender = events["senders"] == sender
+        idc_times = (events["times"][idc_sender] > xlims[0]) & (events["times"][idc_sender] < xlims[1])
+        ax.plot(events["times"][idc_sender][idc_times], events[recordable][idc_sender][idc_times], lw=0.5)
+    ax.set_ylabel(ylabel)
+    margin = np.abs(np.max(events[recordable]) - np.min(events[recordable])) * 0.1
+    ax.set_ylim(np.min(events[recordable]) - margin, np.max(events[recordable]) + margin)
+
+
+def plot_spikes(ax, events, ylabel, xlims):
+    idc_times = (events["times"] > xlims[0]) & (events["times"] < xlims[1])
+    senders_subset = events["senders"][idc_times]
+    times_subset = events["times"][idc_times]
+
+    ax.scatter(times_subset, senders_subset, s=0.1)
+    ax.set_ylabel(ylabel)
+    margin = np.abs(np.max(senders_subset) - np.min(senders_subset)) * 0.1
+    ax.set_ylim(np.min(senders_subset) - margin, np.max(senders_subset) + margin)
+
+
+for title, xlims in zip(
+    ["Dynamic variables before training", "Dynamic variables after training"],
+    [
+        (0, steps["time_per_trial"]),
+        ((n_iter_sim - 1) * batch_size * steps["time_per_trial"], n_iter_sim * batch_size * steps["time_per_trial"]),
+    ],
+):
+    fig, axs = plt.subplots(9, 1, sharex=True, figsize=(8, 14), gridspec_kw={"hspace": 0.4, "left": 0.2})
+    fig.suptitle(title)
+
+    plot_spikes(axs[0], events_sr_in, r"$z_i$" + "\n", xlims)
+    plot_spikes(axs[1], events_sr_rec, r"$z_j$" + "\n", xlims)
+
+    plot_recordable(axs[2], events_mm_rec, "V_m", r"$v_j$" + "\n(mV)", xlims)
+    plot_recordable(axs[3], events_mm_rec, "surrogate_gradient", r"$\psi_j$" + "\n", xlims)
+    plot_recordable(axs[4], events_mm_rec, "learning_signal", r"$L_j$" + "\n(pA)", xlims)
+
+    plot_recordable(axs[5], events_mm_out, "V_m", r"$v_k$" + "\n(mV)", xlims)
+    plot_recordable(axs[6], events_mm_out, "target_signal", r"$y^*_k$" + "\n", xlims)
+    plot_recordable(axs[7], events_mm_out, "readout_signal", r"$y_k$" + "\n", xlims)
+    plot_recordable(axs[8], events_mm_out, "error_signal", r"$y_k-y^*_k$" + "\n", xlims)
+
+    axs[-1].set_xlabel(r"$t$ (ms)")
+    axs[-1].set_xlim(*xlims)
+
+    fig.align_ylabels()
+#%%
+
+def plot_weight_time_course(ax, events, nrns, label, ylabel):
+    sender_label, target_label = label.split("_")
+    nrns_senders = nrns[sender_label]
+    nrns_targets = nrns[target_label]
+
+    for sender in np.unique(events["senders"]):
+        for target in np.unique(events["targets"]):
+            if sender in nrns_senders and target in nrns_targets:
+                idc_syn = (events["senders"] == sender) & (events["targets"] == target)
+                idc_syn_pre = (weights_pre_train[label]["source"] == sender) & (
+                    weights_pre_train[label]["target"] == target
+                )
+
+                if np.any(idc_syn) and np.any(idc_syn_pre):
+                    times = np.concatenate([[0.0], events["times"][idc_syn]])
+
+                    weights = np.concatenate(
+                        [np.array(weights_pre_train[label]["weight"])[idc_syn_pre], events["weights"][idc_syn]]
+                    )
+                    ax.step(times, weights, c=colors["blue"])
+        ax.set_ylabel(ylabel)
+        ax.set_ylim(-0.6, 0.6)
+
+fig, axs = plt.subplots(3, 1, sharex=True, figsize=(3, 4))
+fig.suptitle("Weight time courses")
+
+nrns = {
+    "in": nrns_in.tolist(),
+    "rec": nrns_rec.tolist(),
+    "out": nrns_out.tolist(),
+}
+
+plot_weight_time_course(axs[0], events_wr, nrns, "in_rec", r"$W_\text{in}$ (pA)")
+plot_weight_time_course(axs[1], events_wr, nrns, "rec_rec", r"$W_\text{rec}$ (pA)")
+plot_weight_time_course(axs[2], events_wr, nrns, "rec_out", r"$W_\text{out}$ (pA)")
+
+axs[-1].set_xlabel(r"$t$ (ms)")
+axs[-1].set_xlim(0, duration["task"])
+
+fig.align_ylabels()
+fig.tight_layout()
+
+#%%
+
+cmap = mpl.colors.LinearSegmentedColormap.from_list(
+    "cmap", ((0.0, colors["blue"]), (0.5, colors["white"]), (1.0, colors["red"]))
+)
+
+fig, axs = plt.subplots(3, 2, sharex="col", sharey="row")
+fig.suptitle("Weight matrices")
+
+all_w_extrema = []
+
+for k in weights_pre_train.keys():
+    w_pre = weights_pre_train[k]["weight"]
+    w_post = weights_post_train[k]["weight"]
+    all_w_extrema.append([np.min(w_pre), np.max(w_pre), np.min(w_post), np.max(w_post)])
+
+args = {"cmap": cmap, "vmin": np.min(all_w_extrema), "vmax": np.max(all_w_extrema)}
+
+for i, weights in zip([0, 1], [weights_pre_train, weights_post_train]):
+    axs[0, i].pcolormesh(weights["in_rec"]["weight_matrix"].T, **args)
+    axs[1, i].pcolormesh(weights["rec_rec"]["weight_matrix"], **args)
+    cmesh = axs[2, i].pcolormesh(weights["rec_out"]["weight_matrix"], **args)
+
+    axs[2, i].set_xlabel("recurrent\nneurons")
+
+axs[0, 0].set_ylabel("input\nneurons")
+axs[1, 0].set_ylabel("recurrent\nneurons")
+axs[2, 0].set_ylabel("readout\nneurons")
+fig.align_ylabels(axs[:, 0])
+
+axs[0, 0].text(0.5, 1.1, "before training", transform=axs[0, 0].transAxes, ha="center")
+axs[0, 1].text(0.5, 1.1, "after training", transform=axs[0, 1].transAxes, ha="center")
+
+axs[2, 0].yaxis.get_major_locator().set_params(integer=True)
+
+cbar = plt.colorbar(cmesh, cax=axs[1, 1].inset_axes([1.1, 0.2, 0.05, 0.8]), label="weight (pA)")
+
+fig.tight_layout()
+
+plt.show()
+# %%
