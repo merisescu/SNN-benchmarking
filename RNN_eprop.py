@@ -13,6 +13,12 @@ val_split = 0.1 # proportion of training data to use for validation, is not trai
 n_record = 1  # number of neurons to record dynamic variables from - this script requires n_record >= 1
 n_record_w = 5  # number of senders and targets to record weights from - this script requires n_record_w >=1
 
+n_iter_train = # number of training iterations, 200 for convergence
+n_iter_test = 2  # number of iterations for final test
+do_early_stopping = False  # if True, stop training as soon as stop criterion fulfilled
+n_iter_validate_every = 10  # number of training iterations before validation
+n_iter_early_stop = 8  # number of iterations to average over to evaluate early stopping condition
+stop_crit = 0.07  # error value corresponding to stop criterion for early stopping
 batch_size = 128 # number of items to train on per training/validation iteration
 
 # possible hyperparameters
@@ -50,7 +56,7 @@ import nest
 import numpy as np
 import requests
 from cycler import cycler
-from IPython.display import Image
+#from IPython.display import Image
 
 #%% NMNIST dataset import
 
@@ -74,40 +80,60 @@ sensor_size = tonic.datasets.NMNIST.sensor_size
 frame_transform = transforms.ToFrame(sensor_size=sensor_size, n_time_bins=1)
 
 data, labels = train_dataset[0] # initialise shape
-average = frame_transform(data).astype(np.int32)
+average = frame_transform(data).astype(np.float32)
 
+#%%
+# TODO: change activity code to detect active pixels per polarity not combined
 # load active pixels if already calculated saves time
 try:
-    active_pixels = np.loadtxt("pixel_activations.csv", skiprows=1, delimiter=",",dtype=np.int8)
+    active_pixels = np.loadtxt("pixel_activations.csv", skiprows=1, delimiter=",",dtype=[('p',np.int8),('x',np.int8),('y',np.int8)])
 except:
     # collect pixel activations per trial and average
     for i in range(len(train_idx)-1):
         data, labels = train_dataset[i+1]
-        frame = frame_transform(data).astype(np.int32)
+        frame = frame_transform(data).astype(np.float32)
         average = np.add(average, frame)
 
     average = average[0]
-    average = np.add(average[0], average[1])
-    average = np.divide(average, np.max(average))
+    average[0] = np.divide(average[0], np.max(average[0]))
+    average[1] = np.divide(average[1], np.max(average[1]))
     
     if show_plots:
-        fig, ax = plt.subplots()
-        image = ax.imshow(average,cmap='gray')
-        fig.colorbar(image)
+        fig, axs = plt.subplots(1,2)
+        image_on = axs[0].imshow(average[1],cmap='gray')
+        image_off = axs[1].imshow(average[0],cmap='gray')
+        fig.colorbar(image_on)
         plt.savefig("figures/activation.eps")
 
     active_pixels = np.argwhere(average > activity_threshold) # get indices of active pixels, i think doing it this way is faster and more natural than a binary mask considering the event based nature
 
-    np.savetxt("pixel_activations.csv", X=active_pixels, header="x, y", delimiter=",",fmt='%i')
+    np.savetxt("pixel_activations.csv", X=active_pixels, header="p, x, y", delimiter=",",fmt='%i')
 
-print('Out of 1156 pixels: ', active_pixels[:,0].size, "are active")
+active_pixels = active_pixels[['x','y','p']]
 
+t_max = 336040 # TODO: remove hardcoding
 
+print('Out of 2312 pixels: ', active_pixels.size, "are active")
 
-
+# test data formatting
+'''
+item = 0
+data = train_dataset[item][0]
+#print(data[['x','y']])
+#print(data.dtype)
+#print(active_pixels[0].dtype)
+images_group = [[],[],[]]
+t_max = 336040
+n_in = active_pixels.size # number of input neurons (*2 because 2 polarities)
+for px in range(n_in):
+    mask = np.isin(data[['x','y','p']],active_pixels[px])
+    relative_times = np.around(data[mask]["t"] * time_per_trial / t_max)
+    images_group[item].extend([relative_times])
+    #if len(relative_times) >= 1:
+    #    print(relative_times)
+print(images_group[0])'''
 
 def get_params_task_input_output(n_iter_interval, input_group, target_group):
-    #input_group, target_group = loader.get
 
     spike_times = [[] for _ in range(n_in)]
 
@@ -122,6 +148,8 @@ def get_params_task_input_output(n_iter_interval, input_group, target_group):
         }
         for _ in range(n_out)
     ]
+
+    # flatten input data from x,y to 
 
     for group_element in range(batch_size):
         params_gen_rate_target[target_group[group_element]]["amplitude_values"][group_element] = 1.0
@@ -181,7 +209,7 @@ nest.verbosity = nest.VerbosityLevel.FATAL
 
 #%% Define NEST neurons
 
-n_in = active_pixels.size # number of input neurons
+n_in = active_pixels.size*2 # number of input neurons (*2 because 2 polarities)
 n_out = num_classes  # number of readout neurons, same as number of classes in dataset
 
 if adaptive:
@@ -445,7 +473,7 @@ class TrainingPipeline:
         self.k_iter = 0
         self.early_stop = False
 
-        self.current_index = 0\
+        self.current_index = 0
 
     def get_batch(self,dataset,idx):
         end_index = self.current_index + batch_size
@@ -454,7 +482,19 @@ class TrainingPipeline:
 
         self.current_index = (self.current_index + self.batch_size) % len(idx)
 
-        images_group = [dataset[item][0] for item in selected_indices]
+        # filter out inactive pixels and return as flattened array n, relative_times
+        # TODO: switch to hashing pixels
+        images_group = [[] for item in selected_indices]
+
+        for item in selected_indices:
+            data = dataset[item][0]
+            for px in range(n_in):
+                mask = np.isin(data[['x','y','p']],active_pixels[px])
+                relative_times = np.around(data[mask]["t"] * time_per_trial / t_max)
+                images_group[item].extend([relative_times])
+                #if len(relative_times) >= 1:
+                #    print(relative_times)
+
         labels_group = [dataset[item][1] for item in selected_indices]
 
         return images_group, labels_group
