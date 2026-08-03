@@ -670,7 +670,7 @@ axs[-1].xaxis.get_major_locator().set_params(integer=True)
 
 fig.tight_layout()
 
-#%%
+#%% spiking variables
 
 def plot_recordable(ax, events, recordable, ylabel, xlims):
     for sender in np.unique(events["senders"]):
@@ -719,7 +719,7 @@ for title, xlims in zip(
     axs[-1].set_xlim(*xlims)
 
     fig.align_ylabels()
-#%%
+#%% weight evolution
 
 def plot_weight_time_course(ax, events, nrns, label, ylabel):
     sender_label, target_label = label.split("_")
@@ -763,7 +763,7 @@ axs[-1].set_xlim(0, duration["task"])
 fig.align_ylabels()
 fig.tight_layout()
 
-#%%
+#%% weight matrices
 
 cmap = mpl.colors.LinearSegmentedColormap.from_list(
     "cmap", ((0.0, colors["blue"]), (0.5, colors["white"]), (1.0, colors["red"]))
