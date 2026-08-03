@@ -3,5 +3,6 @@ NMNIST/
 examples/
 .vscode/
 .venv/
+figures/
 NMNIST_pixels_blocklist.txt
 RNN_eprop.ipynb
