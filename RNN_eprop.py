@@ -2,6 +2,10 @@
 # debug/visual stuff
 show_plots = True
 print_time = False # set False if running in notebook bc it already does this
+data_dir = "./data/"
+plots_dir = "./figures/"
+
+threads = 16
 
 # simulation setup stuff
 activity_threshold = 0.02 # threshold for average pixel activity to be considered active
@@ -13,8 +17,8 @@ val_split = 0.1 # proportion of training data to use for validation, is not trai
 n_record = 1  # number of neurons to record dynamic variables from - this script requires n_record >= 1
 n_record_w = 5  # number of senders and targets to record weights from - this script requires n_record_w >=1
 
-batch_size = 128 # number of items to train on per training/validation iteration
-n_iter_train = 20 # number of training iterations, 200 for convergence
+batch_size = 100 # number of items to train on per training/validation iteration
+n_iter_train = 200 # number of training iterations, 200 for convergence
 n_iter_test = 2  # number of iterations for final test
 do_early_stopping = False  # if True, stop training as soon as stop criterion fulfilled
 n_iter_validate_every = 10  # number of training iterations before validation
@@ -45,6 +49,7 @@ sparsity_level_rec_out = 0.0 # sparsity of recurrent to output neurons (fully co
 
 import os
 import time
+import datetime
 import gc
 
 import matplotlib as mpl
@@ -66,6 +71,7 @@ test_dataset = tonic.datasets.NMNIST(save_to="./", train=False) # <- Don't touch
 num_classes = 10 # depends on dataset
 
 test_idx = np.arange(len(test_dataset))
+np.random.shuffle(test_idx)
 
 train_idxs = np.arange(len(train_dataset))
 np.random.shuffle(train_idxs) # randomise data order
@@ -205,6 +211,7 @@ params_setup = {
 }
 
 nest.ResetKernel()
+nest.local_num_threads = threads
 nest.set(**params_setup)
 nest.verbosity = nest.VerbosityLevel.FATAL
 
@@ -594,6 +601,7 @@ class TrainingPipeline:
             self.run_early_stopping()
             self.run_training()
             self.k_iter += 1
+            print('epoch: ', self.k_iter)
 
         self.run_test()
 
@@ -620,6 +628,8 @@ training_pipeline.run()
 results_dict = training_pipeline.get_results()
 n_iter_sim = training_pipeline.n_iter_sim
 
+timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+
 #%% Record post training data
 
 weights_post_train = {
@@ -628,17 +638,39 @@ weights_post_train = {
     "rec_out": get_weights(nrns_rec, nrns_out),
 }
 
-events_mm_rec = mm_rec.get("events")
-events_mm_out = mm_out.get("events")
-events_sr_in = sr_in.get("events")
-events_sr_rec = sr_rec.get("events")
-events_wr = wr.get("events")
+os.makedirs(f"{data_dir}{timestamp}", exist_ok=True)
+
+#TODO: move over to chunked data format and better dtypes
+def save_recorder(recorder,title):
+    data = recorder.get("events")
+    print(title)
+    np.savez(f'{data_dir}{timestamp}/r_{title}.npz', **data)
+    return data
+
+#TODO: add saving for parameters, hyperparameters
+def save_parameters(data,title):
+    np.savez(f'{data_dir}{timestamp}/{title}.npz', **data)
+    return
+
+events_mm_rec = save_recorder(mm_rec, "multimeter_rec")
+events_mm_out = save_recorder(mm_out, "multimeter_out")
+events_sr_in = save_recorder(sr_in, "spiketimes_in")
+events_sr_rec = save_recorder(sr_rec, "spiketimes_rec")
+events_wr = save_recorder(wr, "weight_evolution")
+weights_before = save_parameters(weights_pre_train, "pretrain_weights")
+weights_after = save_parameters(weights_post_train, "posttrain_weights")
+
 
 #%% Visualisation
+
+os.makedirs(f"{plots_dir}{timestamp}", exist_ok=True)
+
+#TODO: switch to cnsplots
 
 colors = {
     "blue": "#2854c5ff",
     "red": "#e04b40ff",
+    "purple": "#984EA3",
     "green": "#25aa2cff",
     "gold": "#f9c643ff",
     "white": "#ffffffff",
@@ -652,23 +684,47 @@ plt.rcParams.update(
     }
 )
 
+#%% learning over time
+
+def averages_std_over_time(input, window_size):
+
+    tail = int(np.floor(window_size/2))
+    ma = np.zeros(len(input))
+    ma[:tail+1] = input[:tail+1]
+    ma[-tail-1:] = input[-tail-1:]
+    ma[tail:-tail] = np.convolve(input,np.ones(window_size)/window_size,mode='valid')
+    return ma
 
 fig, axs = plt.subplots(2, 1, sharex=True)
 fig.suptitle("Learning performance")
 
+axs[1].axhline(0.95,linestyle='--',linewidth=0.5,color='k',label=r'95% accuracy')
+window_size = 5
+tail = int(np.floor(window_size/2))
+loss_ma = averages_std_over_time(results_dict["loss"][:-2],5)
+acc_ma = averages_std_over_time(1-results_dict["error"][:-2],5)
+axs[0].plot(results_dict["iteration"][:-2], loss_ma, label='training')
+axs[1].plot(results_dict["iteration"][:-2], acc_ma, label='training')
+'''
 for color, label in zip(colors, set(results_dict["label"])):
     idc = results_dict["label"] == label
-    axs[0].scatter(results_dict["iteration"][idc], results_dict["loss"][idc], label=label)
-    axs[1].scatter(results_dict["iteration"][idc], results_dict["error"][idc], label=label)
+    #axs[0].scatter(results_dict["iteration"][idc], results_dict["loss"][idc], label=label)
+    axs[1].scatter(results_dict["iteration"][idc], 1-results_dict["error"][idc], label=label)
+'''
+
+axs[0].scatter(results_dict["iteration"][-2],np.mean(results_dict["loss"][-2:]),label='test')
+axs[1].scatter(results_dict["iteration"][-2],np.mean(1-results_dict["error"][-2:]),label='test')
 
 axs[0].set_ylabel(r"$\mathcal{L} = \frac{1}{2} \sum_{t,k} \left( y_k^t -y_k^{*,t}\right)^2$")
-axs[1].set_ylabel("error")
+axs[1].set_ylabel("accuracy")
 
-axs[-1].set_xlabel("iteration")
+axs[-1].set_xlabel("epoch")
 axs[-1].legend(bbox_to_anchor=(1.05, 0.5), loc="center left")
 axs[-1].xaxis.get_major_locator().set_params(integer=True)
 
 fig.tight_layout()
+
+fig.savefig(f"{plots_dir}{timestamp}/learning_over_time.eps")
 
 #%% spiking variables
 
@@ -678,8 +734,8 @@ def plot_recordable(ax, events, recordable, ylabel, xlims):
         idc_times = (events["times"][idc_sender] > xlims[0]) & (events["times"][idc_sender] < xlims[1])
         ax.plot(events["times"][idc_sender][idc_times], events[recordable][idc_sender][idc_times], lw=0.5)
     ax.set_ylabel(ylabel)
-    margin = np.abs(np.max(events[recordable]) - np.min(events[recordable])) * 0.1
-    ax.set_ylim(np.min(events[recordable]) - margin, np.max(events[recordable]) + margin)
+    margin = np.abs(np.max(events[recordable][idc_sender][idc_times]) - np.min(events[recordable][idc_sender][idc_times])) * 0.1
+    ax.set_ylim(np.min(events[recordable][idc_sender][idc_times]) - margin, np.max(events[recordable][idc_sender][idc_times]) + margin)
 
 
 def plot_spikes(ax, events, ylabel, xlims):
@@ -693,12 +749,12 @@ def plot_spikes(ax, events, ylabel, xlims):
     ax.set_ylim(np.min(senders_subset) - margin, np.max(senders_subset) + margin)
 
 
-for title, xlims in zip(
+for title, xlims, savename in zip(
     ["Dynamic variables before training", "Dynamic variables after training"],
     [
         (0, steps["time_per_trial"]),
-        ((n_iter_sim - 1) * batch_size * steps["time_per_trial"], n_iter_sim * batch_size * steps["time_per_trial"]),
-    ],
+        (((n_iter_sim - 0) * batch_size - 1)* steps["time_per_trial"], n_iter_sim * batch_size * steps["time_per_trial"]),
+    ],["before","after"]
 ):
     fig, axs = plt.subplots(9, 1, sharex=True, figsize=(8, 14), gridspec_kw={"hspace": 0.4, "left": 0.2})
     fig.suptitle(title)
@@ -719,6 +775,8 @@ for title, xlims in zip(
     axs[-1].set_xlim(*xlims)
 
     fig.align_ylabels()
+
+    fig.savefig(f"{plots_dir}{timestamp}/recorders_{savename}.eps")
 #%% weight evolution
 
 def plot_weight_time_course(ax, events, nrns, label, ylabel):
@@ -765,21 +823,32 @@ fig.tight_layout()
 
 #%% weight matrices
 
-cmap = mpl.colors.LinearSegmentedColormap.from_list(
-    "cmap", ((0.0, colors["blue"]), (0.5, colors["white"]), (1.0, colors["red"]))
-)
-
 fig, axs = plt.subplots(3, 2, sharex="col", sharey="row")
 fig.suptitle("Weight matrices")
 
 all_w_extrema = []
+all_tails = []
 
 for k in weights_pre_train.keys():
     w_pre = weights_pre_train[k]["weight"]
     w_post = weights_post_train[k]["weight"]
+    all_tails.append([np.percentile(np.abs(w_pre),95),np.percentile(np.abs(w_post),95)])
     all_w_extrema.append([np.min(w_pre), np.max(w_pre), np.min(w_post), np.max(w_post)])
 
-args = {"cmap": cmap, "vmin": np.min(all_w_extrema), "vmax": np.max(all_w_extrema)}
+print(len(all_tails))
+
+vmax = np.max([np.abs(np.min(all_w_extrema)),np.min(all_w_extrema)])
+v_tail = np.mean(all_tails)
+
+dist = v_tail/(2*vmax)
+print(dist)
+
+
+cmap = mpl.colors.LinearSegmentedColormap.from_list(
+    "cmap", ((0.0, colors["green"]),(0.5-dist, colors["blue"]), (0.5, colors["white"]), (0.5+dist, colors["red"]),(1, colors["purple"]))
+)
+
+args = {"cmap": cmap, "vmin": -vmax, "vmax": vmax}
 
 for i, weights in zip([0, 1], [weights_pre_train, weights_post_train]):
     axs[0, i].pcolormesh(weights["in_rec"]["weight_matrix"].T, **args)
@@ -798,9 +867,12 @@ axs[0, 1].text(0.5, 1.1, "after training", transform=axs[0, 1].transAxes, ha="ce
 
 axs[2, 0].yaxis.get_major_locator().set_params(integer=True)
 
-cbar = plt.colorbar(cmesh, cax=axs[1, 1].inset_axes([1.1, 0.2, 0.05, 0.8]), label="weight (pA)")
-
 fig.tight_layout()
 
+cax = fig.add_axes([0.98,0.1,0.025,0.8])
+cbar = plt.colorbar(cmesh,cax=cax, label="weight (pA)")
+cbar.set_ticks([-vmax,-v_tail,0,v_tail,vmax])
+
+fig.savefig(f"{plots_dir}{timestamp}/weights_before_after.eps")
 plt.show()
 # %%

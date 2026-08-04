@@ -4,5 +4,6 @@ examples/
 .vscode/
 .venv/
 figures/
+data/
 NMNIST_pixels_blocklist.txt
 RNN_eprop.ipynb
