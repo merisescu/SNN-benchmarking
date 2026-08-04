@@ -484,6 +484,7 @@ class TrainingPipeline:
         self.current_index = 0
 
     def get_batch(self,dataset,idx):
+        start = time.perf_counter()
         end_index = self.current_index + batch_size
 
         selected_indices = np.take(idx, range(self.current_index, end_index), mode="wrap")
@@ -492,20 +493,35 @@ class TrainingPipeline:
 
         # filter out inactive pixels and return as flattened array n, relative_times
         # TODO: switch to hashing pixels, current method too slow
+        # e.g.
+        # lookup = np.zeros(H*W, dtype=bool)
+        # lookup[wanted["y"] * W + wanted["x"]] = True
+        # mask = lookup.reshape(H,W)
         images_group = [[] for _ in selected_indices]
         #print(selected_indices)
         #print(len(images_group))
-        for item in range(len(selected_indices)):
+        '''for item in range(len(selected_indices)):
             data = dataset[selected_indices[item]][0]
             for px in range(n_in):
                 mask = np.isin(data[['x','y','p']],active_pixels[px])
                 relative_times = np.around(data[mask]["t"] * time_per_trial / t_max)
                 images_group[item].extend([relative_times])
                 #if len(relative_times) >= 1:
+                #    print(relative_times)'''
+        labels_group = []
+        for item, idx in enumerate(selected_indices):
+            data, label = dataset[idx]
+            labels_group.extend([label])
+            data["t"] = np.around(data["t"] * time_per_trial / t_max)
+            for px in range(n_in):
+                mask = np.isin(data[['x','y','p']],active_pixels[px])
+                #relative_times = np.around(data[mask]["t"] * time_per_trial / t_max)
+                relative_times = data[mask]["t"]
+                images_group[item].extend([relative_times])
+                #if len(relative_times) >= 1:
                 #    print(relative_times)
-
-        labels_group = [dataset[item][1] for item in selected_indices]
-
+        stop = time.perf_counter()
+        print("data load time: ", stop-start)
         return images_group, labels_group
 
     def evaluate(self):
@@ -572,8 +588,8 @@ class TrainingPipeline:
         self.run_phase("training", eta_train, images, labels)
 
     def run_validation(self):
-        images, labels = self.get_batch(train_dataset, val_idx)
         if do_early_stopping and self.k_iter % n_iter_validate_every == 0:
+            images, labels = self.get_batch(train_dataset, val_idx)
             self.run_phase("validation", eta_test, images, labels)
 
     def run_early_stopping(self):
@@ -652,15 +668,23 @@ def save_parameters(data,title):
     np.savez(f'{data_dir}{timestamp}/{title}.npz', **data)
     return
 
+#TODO: saving all parameters and results!
 events_mm_rec = save_recorder(mm_rec, "multimeter_rec")
 events_mm_out = save_recorder(mm_out, "multimeter_out")
 events_sr_in = save_recorder(sr_in, "spiketimes_in")
 events_sr_rec = save_recorder(sr_rec, "spiketimes_rec")
 events_wr = save_recorder(wr, "weight_evolution")
-weights_before = save_parameters(weights_pre_train, "pretrain_weights")
-weights_after = save_parameters(weights_post_train, "posttrain_weights")
+save_parameters(weights_pre_train, "pretrain_weights")
+save_parameters(weights_post_train, "posttrain_weights")
+save_parameters(results_dict, "results")
+save_parameters()
+
 
 #%% test loading info
+
+timestamps = os.listdir(data_dir)
+print(timestamps)
+timestamp = timestamps[0]
 
 def load_recorder(title):
     return np.load(f"{data_dir}{timestamp}/r_{title}.npz")
