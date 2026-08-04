@@ -4,6 +4,8 @@ show_plots = True
 print_time = False # set False if running in notebook bc it already does this
 data_dir = "./data/"
 plots_dir = "./figures/"
+recording = True # for benchmarking recording overhead
+
 
 threads = 16
 
@@ -25,6 +27,9 @@ n_iter_validate_every = 10  # number of training iterations before validation
 n_iter_early_stop = 8  # number of iterations to average over to evaluate early stopping condition
 stop_crit = 0.07  # error value corresponding to stop criterion for early stopping
 
+optimizers = ["gradient_descent","adam"] #TODO: implement adam optimizer settings (if necessary)
+optimizer = optimizers[0]
+
 # possible hyperparameters
 adaptive = False # if True, use adaptive LIF neurons, else standard LIF neurons
 delay = 1 # connection delay between input and recurrent neurons, min 1
@@ -33,7 +38,8 @@ V_m = 0. # mV, resting neuron (membrane) potential, also used as initial value
 V_th = 0.6 # mV, threshold voltage
 f_target = 10. # spikes/s, target firing rate for firing rate regularization
 n_rec = 150  # number of recurrent neurons
-surrogate_gradients = ["piecewise_linear",] # TODO: add the rest
+surrogate_gradients = ["piecewise_linear"] #TODO: add others
+surrogate_gradient = surrogate_gradients[0]
 # height and width scaling of pseudoderivative function
 grad_height = 0.5
 grad_width = 1.0 / 1.7
@@ -41,7 +47,7 @@ t_ref = 0. # ms, refractory period
 beta = 1 # ALIF coefficient for scaling threshold adaptation
 tau_a = 200 # ms, threshold adaptation time constant (e^-t/tau_a)
 
-sparsity_level_in_rec = 0.75  # sparsity of synapses between input and recurrent neurons
+sparsity_level_in_rec = 0.9  # sparsity of synapses between input and recurrent neurons
 sparsity_level_rec_rec = 0.99 # sparsity of recurrent synapses
 sparsity_level_rec_out = 0.0 # sparsity of recurrent to output neurons (fully connected by default)
 
@@ -247,7 +253,7 @@ params_nrn_rec = {
     "I_e": 0.0, # (not used)
     "kappa": 0.99,  # low-pass filter of the eligibility trace
     "kappa_reg": 0.99,  # low-pass filter of the firing rate for regularization
-    "surrogate_gradient_function": surrogate_gradients[0],  # surrogate gradient / pseudo-derivative function
+    "surrogate_gradient_function": surrogate_gradient,  # surrogate gradient / pseudo-derivative function
     "surrogate_gradient_height": grad_height,  # height scaling of the pseudo-derivative
     "surrogate_gradient_width": grad_width,  # width scaling of the pseudo-derivative
     "t_ref": 0.0,  # ms, duration of refractory period
@@ -368,7 +374,7 @@ wr.set(
 
 params_common_syn_eprop = {
     "optimizer": {
-        "type": "gradient_descent",  # algorithm to optimize the weights TODO: give options
+        "type": optimizer,  # algorithm to optimize the weights TODO: give options
         "batch_size": 1, # TODO: implement batch here and not in series
         "optimize_each_step": False,  # call optimizer every time step (True) or once per spike (False); both
         # yield same results for gradient descent, False offers speed-up
@@ -435,17 +441,30 @@ nest.Connect(nrns_out, nrns_rec, params_conn_all_to_all, params_syn_feedback)  #
 nest.Connect(gen_rate_target, nrns_out, params_conn_one_to_one, params_syn_rate_target)  # connection 6
 nest.Connect(gen_learning_window, nrns_out, params_conn_all_to_all, params_syn_learning_window)  # connection 7
 
-nest.Connect(nrns_in, sr_in, params_conn_all_to_all, params_syn_static)
-nest.Connect(nrns_rec, sr_rec, params_conn_all_to_all, params_syn_static)
 
-nest.Connect(mm_rec, nrns_rec_record, params_conn_all_to_all, params_syn_static)
-nest.Connect(mm_out, nrns_out, params_conn_all_to_all, params_syn_static)
+# connect recorders
+
+if recording:
+    nest.Connect(nrns_in, sr_in, params_conn_all_to_all, params_syn_static)
+    nest.Connect(nrns_rec, sr_rec, params_conn_all_to_all, params_syn_static)
+
+    nest.Connect(mm_rec, nrns_rec_record, params_conn_all_to_all, params_syn_static)
+    nest.Connect(mm_out, nrns_out, params_conn_all_to_all, params_syn_static)
 
 # Send a final update spike to force update to all neurons
 
 gen_spk_final_update = nest.Create("spike_generator", 1)
 
 nest.Connect(gen_spk_final_update, nrns_in + nrns_rec, "all_to_all", {"weight": 1000.0})
+
+#%% check synapse count
+
+esynapses = nest.GetConnections(synapse_model="eprop_synapse")
+print(len(esynapses))
+from collections import Counter
+
+models = nest.GetConnections().get("synapse_model")
+print(Counter(models))
 
 #%% Store initial weights
 
@@ -466,7 +485,6 @@ weights_pre_train = {
 }
 
 #%% Simulate
-# TODO: Finish migrating data loader to training pipeline
 class TrainingPipeline:
     def __init__(self):
         self.results_dict = {
@@ -484,7 +502,6 @@ class TrainingPipeline:
         self.current_index = 0
 
     def get_batch(self,dataset,idx):
-        start = time.perf_counter()
         end_index = self.current_index + batch_size
 
         selected_indices = np.take(idx, range(self.current_index, end_index), mode="wrap")
@@ -498,16 +515,6 @@ class TrainingPipeline:
         # lookup[wanted["y"] * W + wanted["x"]] = True
         # mask = lookup.reshape(H,W)
         images_group = [[] for _ in selected_indices]
-        #print(selected_indices)
-        #print(len(images_group))
-        '''for item in range(len(selected_indices)):
-            data = dataset[selected_indices[item]][0]
-            for px in range(n_in):
-                mask = np.isin(data[['x','y','p']],active_pixels[px])
-                relative_times = np.around(data[mask]["t"] * time_per_trial / t_max)
-                images_group[item].extend([relative_times])
-                #if len(relative_times) >= 1:
-                #    print(relative_times)'''
         labels_group = []
         for item, idx in enumerate(selected_indices):
             data, label = dataset[idx]
@@ -515,49 +522,45 @@ class TrainingPipeline:
             data["t"] = np.around(data["t"] * time_per_trial / t_max)
             for px in range(n_in):
                 mask = np.isin(data[['x','y','p']],active_pixels[px])
-                #relative_times = np.around(data[mask]["t"] * time_per_trial / t_max)
                 relative_times = data[mask]["t"]
                 images_group[item].extend([relative_times])
-                #if len(relative_times) >= 1:
-                #    print(relative_times)
-        stop = time.perf_counter()
-        print("data load time: ", stop-start)
         return images_group, labels_group
 
     def evaluate(self):
-        events_mm_out = mm_out.get("events")
+        if recording:
+            events_mm_out = mm_out.get("events")
 
-        readout_signal = events_mm_out["readout_signal"]
-        target_signal = events_mm_out["target_signal"]
-        senders = events_mm_out["senders"]
-        times = events_mm_out["times"]
+            readout_signal = events_mm_out["readout_signal"]
+            target_signal = events_mm_out["target_signal"]
+            senders = events_mm_out["senders"]
+            times = events_mm_out["times"]
 
-        cond1 = times > (self.n_iter_sim - 1) * batch_size * duration["time_per_trial"] + duration["total_offset"]
-        cond2 = times <= self.n_iter_sim * batch_size * duration["time_per_trial"] + duration["total_offset"]
-        idc = cond1 & cond2
+            cond1 = times > (self.n_iter_sim - 1) * batch_size * duration["time_per_trial"] + duration["total_offset"]
+            cond2 = times <= self.n_iter_sim * batch_size * duration["time_per_trial"] + duration["total_offset"]
+            idc = cond1 & cond2
 
-        readout_signal = np.array([readout_signal[idc][senders[idc] == i] for i in np.unique(senders)])
-        target_signal = np.array([target_signal[idc][senders[idc] == i] for i in np.unique(senders)])
+            readout_signal = np.array([readout_signal[idc][senders[idc] == i] for i in np.unique(senders)])
+            target_signal = np.array([target_signal[idc][senders[idc] == i] for i in np.unique(senders)])
 
-        readout_signal = readout_signal.reshape((n_out, 1, batch_size, steps["time_per_trial"]))
-        target_signal = target_signal.reshape((n_out, 1, batch_size, steps["time_per_trial"]))
+            readout_signal = readout_signal.reshape((n_out, 1, batch_size, steps["time_per_trial"]))
+            target_signal = target_signal.reshape((n_out, 1, batch_size, steps["time_per_trial"]))
 
-        readout_signal = readout_signal[:, :, :, -steps["learning_window"] :]
-        target_signal = target_signal[:, :, :, -steps["learning_window"] :]
+            readout_signal = readout_signal[:, :, :, -steps["learning_window"] :]
+            target_signal = target_signal[:, :, :, -steps["learning_window"] :]
 
-        loss = 0.5 * np.mean(np.sum((readout_signal - target_signal) ** 2, axis=3), axis=(0, 2))
+            loss = 0.5 * np.mean(np.sum((readout_signal - target_signal) ** 2, axis=3), axis=(0, 2))
 
-        y_prediction = np.argmax(np.mean(readout_signal, axis=3), axis=0)
-        y_target = np.argmax(np.mean(target_signal, axis=3), axis=0)
-        accuracy = np.mean((y_target == y_prediction), axis=1)
-        errors = 1.0 - accuracy
+            y_prediction = np.argmax(np.mean(readout_signal, axis=3), axis=0)
+            y_target = np.argmax(np.mean(target_signal, axis=3), axis=0)
+            accuracy = np.mean((y_target == y_prediction), axis=1)
+            errors = 1.0 - accuracy
 
-        self.results_dict["iteration"].append(self.n_iter_sim)
-        self.results_dict["error"].extend(errors)
-        self.results_dict["loss"].extend(loss)
-        self.results_dict["label"].append(self.phase_label_previous)
+            self.results_dict["iteration"].append(self.n_iter_sim)
+            self.results_dict["error"].extend(errors)
+            self.results_dict["loss"].extend(loss)
+            self.results_dict["label"].append(self.phase_label_previous)
 
-        self.error = errors[0]
+            self.error = errors[0]
 
     def run_phase(self, phase_label, eta, images, labels):
         params_common_syn_eprop["optimizer"]["eta"] = eta
@@ -570,21 +573,26 @@ class TrainingPipeline:
         gen_rate_target.set(params_gen_rate_target)
         gen_learning_window.set(params_gen_learning_window)
 
+        start = time.perf_counter()
         self.simulate("total_offset")
         self.simulate("extension_sim")
-
+        
         if self.n_iter_sim > 0:
             self.evaluate()
 
         duration["sim"] = batch_size * duration["time_per_trial"] - duration["total_offset"] - duration["extension_sim"]
 
         self.simulate("sim")
-
+        stop = time.perf_counter()
+        print('simulation time: ', stop-start)
         self.n_iter_sim += 1
         self.phase_label_previous = phase_label
 
     def run_training(self):
+        start = time.perf_counter()
         images, labels = self.get_batch(train_dataset, train_idx)
+        stop = time.perf_counter()
+        print("data load + copy time: ", stop-start)
         self.run_phase("training", eta_train, images, labels)
 
     def run_validation(self):
@@ -615,7 +623,10 @@ class TrainingPipeline:
         while self.k_iter < n_iter_train and not self.early_stop:
             self.run_validation()
             self.run_early_stopping()
+            start = time.perf_counter()
             self.run_training()
+            stop = time.perf_counter()
+            print("total train time: ", stop-start)
             self.k_iter += 1
             print('epoch: ', self.k_iter)
 
@@ -624,7 +635,8 @@ class TrainingPipeline:
         self.simulate("total_offset")
         self.simulate("extension_sim")
 
-        self.evaluate()
+        if recording:
+            self.evaluate()
 
         duration["task"] = self.n_iter_sim * batch_size * duration["time_per_trial"] + duration["total_offset"]
 
