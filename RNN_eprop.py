@@ -660,6 +660,23 @@ events_wr = save_recorder(wr, "weight_evolution")
 weights_before = save_parameters(weights_pre_train, "pretrain_weights")
 weights_after = save_parameters(weights_post_train, "posttrain_weights")
 
+#%% test loading info
+
+def load_recorder(title):
+    return np.load(f"{data_dir}{timestamp}/r_{title}.npz")
+
+def load_parameters(title):
+    return np.load(f"{data_dir}{timestamp}/{title}.npz")
+
+events_mm_rec = load_recorder("multimeter_rec")
+events_mm_out = load_recorder("multimeter_out")
+events_sr_in = load_recorder("spiketimes_in")
+events_sr_rec = load_recorder("spiketimes_rec")
+events_wr = load_recorder("weight_evolution")
+weights_before = load_parameters("pretrain_weights")
+weights_after = load_parameters("posttrain_weights")
+
+
 
 #%% Visualisation
 
