@@ -13,13 +13,17 @@ val_split = 0.1 # proportion of training data to use for validation, is not trai
 n_record = 1  # number of neurons to record dynamic variables from - this script requires n_record >= 1
 n_record_w = 5  # number of senders and targets to record weights from - this script requires n_record_w >=1
 
-batch_size = 128 # number of items to train on per training/validation iteration
-n_iter_train = 20 # number of training iterations, 200 for convergence
-n_iter_test = 2  # number of iterations for final test
-do_early_stopping = False  # if True, stop training as soon as stop criterion fulfilled
+batch_size = 100 # number of items to train on per training/validation iteration
+n_iter_train = 50 # number of training iterations, 200 for convergence
+n_iter_test = 2 # number of iterations for final test
 n_iter_validate_every = 10  # number of training iterations before validation
-n_iter_early_stop = 8  # number of iterations to average over to evaluate early stopping condition
+
+do_early_stopping = False  # if True, stop training as soon as stop criterion fulfilled
+n_iter_early_stop = 8  # number of iterations to average over to evaluate early stopping condition (patience)
 stop_crit = 0.07  # error value corresponding to stop criterion for early stopping
+
+optimizers = ["gradient_descent", "adam"]
+optimizer = optimizers[0]
 
 # possible hyperparameters
 adaptive = False # if True, use adaptive LIF neurons, else standard LIF neurons
@@ -66,6 +70,7 @@ test_dataset = tonic.datasets.NMNIST(save_to="./", train=False) # <- Don't touch
 num_classes = 10 # depends on dataset
 
 test_idx = np.arange(len(test_dataset))
+np.random.shuffle(test_idx)
 
 train_idxs = np.arange(len(train_dataset))
 np.random.shuffle(train_idxs) # randomise data order
@@ -86,7 +91,6 @@ data, labels = train_dataset[0] # initialise shape
 average = frame_transform(data).astype(np.float32)
 
 #%%
-# TODO: change activity code to detect active pixels per polarity not combined
 # load active pixels if already calculated saves time
 try:
     active_pixels = np.loadtxt("pixel_activations.csv", skiprows=1, delimiter=",",dtype=[('p',np.int8),('x',np.int8),('y',np.int8)])
@@ -125,7 +129,7 @@ data = train_dataset[item][0]
 #print(data[['x','y']])
 #print(data.dtype)
 #print(active_pixels[0].dtype)
-images_group = [[],[],[]]
+'''images_group = [[],[],[]]
 t_max = 336040
 n_in = active_pixels.size # number of input neurons (*2 because 2 polarities)
 for px in range(n_in):
@@ -134,53 +138,7 @@ for px in range(n_in):
     images_group[item].extend([relative_times])
     #if len(relative_times) >= 1:
     #    print(relative_times)
-print(images_group[0])
-
-def get_params_task_input_output(n_iter_interval, input_group, target_group):
-
-    spike_times = [[] for _ in range(n_in)]
-
-    iteration_offset = n_iter_interval * batch_size * duration["time_per_trial"]
-
-    params_gen_rate_target = [
-        {
-            "amplitude_times": np.arange(0.0, batch_size * duration["time_per_trial"], duration["time_per_trial"])
-            + iteration_offset
-            + duration["total_offset"],
-            "amplitude_values": np.zeros(batch_size),
-        }
-        for _ in range(n_out)
-    ]
-
-    for group_element in range(batch_size):
-        params_gen_rate_target[target_group[group_element]]["amplitude_values"][group_element] = 1.0
-        for n, relative_times in enumerate(input_group[group_element]):
-            if len(relative_times) > 0:
-                #print(n, relative_times)
-                relative_times = np.array(relative_times)
-                spike_times[n].extend(
-                    iteration_offset + group_element * duration["time_per_trial"] + relative_times + duration["offset_gen"]
-                )
-                # n is the pixel channel i think (flattened to 1d)
-                # relative spike times for each item is converted to absolute time in simulation
-                # iteration_offset - absolute amount of time since simulation start i.e. number of simulation trials (training, validation etc.) * size of each trial (group size * duration of each trial), then add group_element*duration['sequence'] to add how far along we are in this trial, then the offset_gen for the initial timer zeroing, ALL added to the relative time
-
-    params_gen_learning_window = {
-        "amplitude_times": np.hstack(
-            [
-                np.array([0.0, duration["time_per_trial"] - duration["learning_window"]])
-                + iteration_offset
-                + group_element * duration["time_per_trial"]
-                + duration["total_offset"]
-                for group_element in range(batch_size)
-            ]
-        ),
-        "amplitude_values": np.tile([0.0, 1.0], batch_size),
-    }
-
-    params_gen_spk_in = [{"spike_times": spk_times} for spk_times in spike_times]
-
-    return params_gen_spk_in, params_gen_rate_target, params_gen_learning_window
+print(images_group[0])'''
 
 #%% Define NEST simulation setup
 
@@ -361,7 +319,7 @@ wr.set(
 
 params_common_syn_eprop = {
     "optimizer": {
-        "type": "gradient_descent",  # algorithm to optimize the weights TODO: give options
+        "type": optimizer,  # algorithm to optimize the weights TODO: give options
         "batch_size": 1, # TODO: implement batch here and not in series
         "optimize_each_step": False,  # call optimizer every time step (True) or once per spike (False); both
         # yield same results for gradient descent, False offers speed-up
@@ -458,8 +416,9 @@ weights_pre_train = {
     "rec_out": get_weights(nrns_rec, nrns_out),
 }
 
-#%% Simulate
-# TODO: Finish migrating data loader to training pipeline
+#%%
+batch_num = range(batch_size)
+n_in_num = range(n_in)
 class TrainingPipeline:
     def __init__(self):
         self.results_dict = {
@@ -475,6 +434,54 @@ class TrainingPipeline:
         self.early_stop = False
 
         self.current_index = 0
+        self.current_input = [[[] for _ in n_in_num] for _ in batch_num]
+        self.current_labels = [[] for _ in batch_num]
+
+    def get_params_task_input_output(self):
+
+        spike_times = [[] for _ in n_in_num]
+
+        iteration_offset = self.n_iter_sim * batch_size * duration["time_per_trial"]
+
+        params_gen_rate_target = [
+            {
+                "amplitude_times": np.arange(0.0, batch_size * duration["time_per_trial"], duration["time_per_trial"])
+                + iteration_offset
+                + duration["total_offset"],
+                "amplitude_values": np.zeros(batch_size),
+            }
+            for _ in range(n_out)
+        ]
+
+        for group_element in batch_num:
+            params_gen_rate_target[self.current_labels[group_element]]["amplitude_values"][group_element] = 1.0
+            for n, relative_times in enumerate(self.current_input[group_element]):
+                if len(relative_times) > 0:
+                    #print(n, relative_times)
+                    relative_times = np.array(relative_times)
+                    spike_times[n].extend(
+                        iteration_offset + group_element * duration["time_per_trial"] + relative_times + duration["offset_gen"]
+                    )
+                    # n is the pixel channel i think (flattened to 1d)
+                    # relative spike times for each item is converted to absolute time in simulation
+                    # iteration_offset - absolute amount of time since simulation start i.e. number of simulation trials (training, validation etc.) * size of each trial (group size * duration of each trial), then add group_element*duration['sequence'] to add how far along we are in this trial, then the offset_gen for the initial timer zeroing, ALL added to the relative time
+
+        params_gen_learning_window = {
+            "amplitude_times": np.hstack(
+                [
+                    np.array([0.0, duration["time_per_trial"] - duration["learning_window"]])
+                    + iteration_offset
+                    + group_element * duration["time_per_trial"]
+                    + duration["total_offset"]
+                    for group_element in batch_num
+                ]
+            ),
+            "amplitude_values": np.tile([0.0, 1.0], batch_size),
+        }
+
+        params_gen_spk_in = [{"spike_times": spk_times} for spk_times in spike_times]
+
+        return params_gen_spk_in, params_gen_rate_target, params_gen_learning_window
 
     def get_batch(self,dataset,idx):
         end_index = self.current_index + batch_size
@@ -484,8 +491,7 @@ class TrainingPipeline:
         self.current_index = (self.current_index + batch_size) % len(idx)
 
         # filter out inactive pixels and return as flattened array n, relative_times
-        # TODO: switch to hashing pixels, current method too slow
-        images_group = [[] for _ in selected_indices]
+        #images_group = [[] for _ in selected_indices]
         #print(selected_indices)
         #print(len(images_group))
         for item in range(len(selected_indices)):
@@ -493,13 +499,13 @@ class TrainingPipeline:
             for px in range(n_in):
                 mask = np.isin(data[['x','y','p']],active_pixels[px])
                 relative_times = np.around(data[mask]["t"] * time_per_trial / t_max)
-                images_group[item].extend([relative_times])
+                self.current_input[item][px]=relative_times
                 #if len(relative_times) >= 1:
                 #    print(relative_times)
 
-        labels_group = [dataset[item][1] for item in selected_indices]
+        self.current_labels = [dataset[item][1] for item in selected_indices]
 
-        return images_group, labels_group
+        return
 
     def evaluate(self):
         events_mm_out = mm_out.get("events")
@@ -536,13 +542,11 @@ class TrainingPipeline:
 
         self.error = errors[0]
 
-    def run_phase(self, phase_label, eta, images, labels):
+    def run_phase(self, phase_label, eta):
         params_common_syn_eprop["optimizer"]["eta"] = eta
         nest.SetDefaults("eprop_synapse", params_common_syn_eprop)
 
-        params_gen_spk_in, params_gen_rate_target, params_gen_learning_window = get_params_task_input_output(
-            self.n_iter_sim, images, labels
-        )
+        params_gen_spk_in, params_gen_rate_target, params_gen_learning_window = self.get_params_task_input_output()
         gen_spk_in.set(params_gen_spk_in)
         gen_rate_target.set(params_gen_rate_target)
         gen_learning_window.set(params_gen_learning_window)
@@ -561,29 +565,29 @@ class TrainingPipeline:
         self.phase_label_previous = phase_label
 
     def run_training(self):
-        images, labels = self.get_batch(train_dataset, train_idx)
-        self.run_phase("training", eta_train, images, labels)
+        self.get_batch(train_dataset, train_idx)
+        self.run_phase("training", eta_train)
 
     def run_validation(self):
-        images, labels = self.get_batch(train_dataset, val_idx)
+        self.get_batch(train_dataset, val_idx)
         if do_early_stopping and self.k_iter % n_iter_validate_every == 0:
-            self.run_phase("validation", eta_test, images, labels)
+            self.run_phase("validation", eta_test)
 
     def run_early_stopping(self):
         if do_early_stopping and self.k_iter % n_iter_validate_every == 0:
             if self.k_iter > 0 and self.error < stop_crit:
                 errors_early_stop = []
                 for _ in range(n_iter_early_stop):
-                    images, labels = self.get_batch(train_dataset, val_idx)
-                    self.run_phase("early-stopping", eta_test, images, labels)
+                    self.get_batch(train_dataset, val_idx)
+                    self.run_phase("early-stopping", eta_test)
                     errors_early_stop.append(self.error)
 
                 self.early_stop = np.mean(errors_early_stop) < stop_crit
 
     def run_test(self):
-        images, labels = self.get_batch(test_dataset, test_idx)
+        self.get_batch(test_dataset, test_idx)
         for _ in range(n_iter_test):
-            self.run_phase("test", eta_test, images, labels)
+            self.run_phase("test", eta_test)
 
     def simulate(self, k):
         nest.Simulate(duration[k])
@@ -594,6 +598,7 @@ class TrainingPipeline:
             self.run_early_stopping()
             self.run_training()
             self.k_iter += 1
+            print('Epoch: ', self.k_iter)
 
         self.run_test()
 
