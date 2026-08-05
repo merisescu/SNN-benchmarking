@@ -47,6 +47,7 @@ t_ref = 0. # ms, refractory period
 beta = 1 # ALIF coefficient for scaling threshold adaptation
 tau_a = 200 # ms, threshold adaptation time constant (e^-t/tau_a)
 
+# def optimise this, biggest drain on simulation time other than recording:
 sparsity_level_in_rec = 0.9  # sparsity of synapses between input and recurrent neurons
 sparsity_level_rec_rec = 0.99 # sparsity of recurrent synapses
 sparsity_level_rec_out = 0.0 # sparsity of recurrent to output neurons (fully connected by default)
