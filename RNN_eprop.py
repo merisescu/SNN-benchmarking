@@ -484,6 +484,21 @@ weights_pre_train = {
     "rec_out": get_weights(nrns_rec, nrns_out),
 }
 
+#%% functions for saving compressed data
+
+#TODO: move over to chunked data format and better dtypes
+def save_recorder(recorder,title,void=True):
+    data = recorder.get("events")
+    print(title)
+    np.savez(f'{data_dir}{timestamp}/r_{title}.npz', **data)
+    if not void:
+        return data
+
+#TODO: add saving for parameters, hyperparameters
+def save_parameters(data,title):
+    np.savez(f'{data_dir}{timestamp}/{title}.npz', **data)
+
+
 #%% Simulate
 class TrainingPipeline:
     def __init__(self):
@@ -528,7 +543,7 @@ class TrainingPipeline:
 
     def evaluate(self):
         if recording:
-            events_mm_out = mm_out.get("events")
+            '''events_mm_out = mm_out.get("events")
 
             readout_signal = events_mm_out["readout_signal"]
             target_signal = events_mm_out["target_signal"]
@@ -560,7 +575,7 @@ class TrainingPipeline:
             self.results_dict["loss"].extend(loss)
             self.results_dict["label"].append(self.phase_label_previous)
 
-            self.error = errors[0]
+            self.error = errors[0]'''
 
     def run_phase(self, phase_label, eta, images, labels):
         params_common_syn_eprop["optimizer"]["eta"] = eta
@@ -629,6 +644,8 @@ class TrainingPipeline:
             print("total train time: ", stop-start)
             self.k_iter += 1
             print('epoch: ', self.k_iter)
+            if self.k_iter % 20 == 0:
+                self.prune()
 
         self.run_test()
 
@@ -644,6 +661,9 @@ class TrainingPipeline:
 
         self.simulate("final_update")
 
+    def prune(self):
+        return
+
     def get_results(self):
         for k, v in self.results_dict.items():
             self.results_dict[k] = np.array(v)
@@ -653,7 +673,7 @@ class TrainingPipeline:
 training_pipeline = TrainingPipeline()
 training_pipeline.run()
 
-results_dict = training_pipeline.get_results()
+#results_dict = training_pipeline.get_results()
 n_iter_sim = training_pipeline.n_iter_sim
 
 timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -668,29 +688,52 @@ weights_post_train = {
 
 os.makedirs(f"{data_dir}{timestamp}", exist_ok=True)
 
-#TODO: move over to chunked data format and better dtypes
-def save_recorder(recorder,title):
-    data = recorder.get("events")
-    print(title)
-    np.savez(f'{data_dir}{timestamp}/r_{title}.npz', **data)
-    return data
-
-#TODO: add saving for parameters, hyperparameters
-def save_parameters(data,title):
-    np.savez(f'{data_dir}{timestamp}/{title}.npz', **data)
-    return
-
 #TODO: saving all parameters and results!
-events_mm_rec = save_recorder(mm_rec, "multimeter_rec")
-events_mm_out = save_recorder(mm_out, "multimeter_out")
-events_sr_in = save_recorder(sr_in, "spiketimes_in")
-events_sr_rec = save_recorder(sr_rec, "spiketimes_rec")
-events_wr = save_recorder(wr, "weight_evolution")
+events_mm_rec = save_recorder(mm_rec, "multimeter_rec",False)
+events_mm_out = save_recorder(mm_out, "multimeter_out",False)
+events_sr_in = save_recorder(sr_in, "spiketimes_in",False)
+events_sr_rec = save_recorder(sr_rec, "spiketimes_rec",False)
+events_wr = save_recorder(wr, "weight_evolution",False)
 save_parameters(weights_pre_train, "pretrain_weights")
 save_parameters(weights_post_train, "posttrain_weights")
-save_parameters(results_dict, "results")
-save_parameters()
+#save_parameters(results_dict, "results")
 
+#%%
+
+readout_signal = events_mm_out["readout_signal"]
+target_signal = events_mm_out["target_signal"]
+senders = events_mm_out["senders"]
+times = events_mm_out["times"]
+
+cond1 = times > (training_pipeline.n_iter_sim - 1) * batch_size * duration["time_per_trial"] + duration["total_offset"]
+cond2 = times <= training_pipeline.n_iter_sim * batch_size * duration["time_per_trial"] + duration["total_offset"]
+idc = cond1 & cond2
+
+readout_signal = np.array([readout_signal[idc][senders[idc] == i] for i in np.unique(senders)])
+target_signal = np.array([target_signal[idc][senders[idc] == i] for i in np.unique(senders)])
+
+readout_signal = readout_signal.reshape((n_out, 1, batch_size, steps["time_per_trial"]))
+target_signal = target_signal.reshape((n_out, 1, batch_size, steps["time_per_trial"]))
+
+readout_signal = readout_signal[:, :, :, -steps["learning_window"] :]
+target_signal = target_signal[:, :, :, -steps["learning_window"] :]
+
+loss = 0.5 * np.mean(np.sum((readout_signal - target_signal) ** 2, axis=3), axis=(0, 2))
+
+y_prediction = np.argmax(np.mean(readout_signal, axis=3), axis=0)
+y_target = np.argmax(np.mean(target_signal, axis=3), axis=0)
+accuracy = np.mean((y_target == y_prediction), axis=1)
+errors = 1.0 - accuracy
+
+training_pipeline.results_dict["iteration"].append(training_pipeline.n_iter_sim)
+training_pipeline.results_dict["error"].extend(errors)
+training_pipeline.results_dict["loss"].extend(loss)
+training_pipeline.results_dict["label"].append(training_pipeline.phase_label_previous)
+
+training_pipeline.error = errors[0]
+results_dict = training_pipeline.get_results()
+
+print(accuracy)
 
 #%% test loading info
 
@@ -751,13 +794,15 @@ def averages_std_over_time(input, window_size):
 fig, axs = plt.subplots(2, 1, sharex=True)
 fig.suptitle("Learning performance")
 
-axs[1].axhline(0.95,linestyle='--',linewidth=0.5,color='k',label=r'95% accuracy')
-window_size = 5
-tail = int(np.floor(window_size/2))
+axs[1].axhline(0.95,linestyle='--',linewidth=0.5,color='k',label=r'target')
+
 loss_ma = averages_std_over_time(results_dict["loss"][:-2],5)
 acc_ma = averages_std_over_time(1-results_dict["error"][:-2],5)
 axs[0].plot(results_dict["iteration"][:-2], loss_ma, label='training')
 axs[1].plot(results_dict["iteration"][:-2], acc_ma, label='training')
+
+axs[0].plot(results_dict["iteration"], results_dict["loss"], label='training')
+axs[1].plot(results_dict["iteration"], 1-results_dict["error"], label='training')
 '''
 for color, label in zip(colors, set(results_dict["label"])):
     idc = results_dict["label"] == label
