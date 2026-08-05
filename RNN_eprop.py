@@ -4,7 +4,7 @@ show_plots = True
 print_time = False # set False if running in notebook bc it already does this
 data_dir = "./data/"
 plots_dir = "./figures/"
-recording = True # for benchmarking recording overhead
+recording = False # for time recording
 
 
 threads = 16
@@ -132,7 +132,7 @@ t_max = 336040 # TODO: remove hardcoding
 print('Out of 2312 pixels: ', active_pixels.size, "are active")
 print(len(active_pixels))
 # test data formatting
-
+'''
 item = 0
 data = train_dataset[item][0]
 #print(data[['x','y']])
@@ -147,7 +147,7 @@ for px in range(n_in):
     images_group[item].extend([relative_times])
     #if len(relative_times) >= 1:
     #    print(relative_times)
-print(images_group[0])
+print(images_group[0])'''
 
 def get_params_task_input_output(n_iter_interval, input_group, target_group):
 
@@ -294,9 +294,17 @@ if n_record == 0 or n_record_w == 0:
 params_mm_rec = {
     "interval": duration["step"],  # interval between two recorded time points
     "record_from": ["V_m", "surrogate_gradient", "learning_signal"],  # dynamic variables to record
-    "start": duration["offset_gen"] + duration["delay_in_rec"],  # start time of recording
+    "start": duration["total_offset"],  # start time of recording
     "label": "multimeter_rec",
 }
+
+params_mm_out = {
+    "interval": duration["step"],
+    "record_from": ["V_m", "readout_signal", "target_signal", "error_signal"],
+    "start": duration["total_offset"],
+    "label": "multimeter_out",
+}
+
 
 params_mm_out = {
     "interval": duration["step"],
@@ -536,15 +544,20 @@ class TrainingPipeline:
             data, label = dataset[idx]
             labels_group.extend([label])
             data["t"] = np.around(data["t"] * time_per_trial / t_max)
+            '''
             for px in range(n_in):
                 mask = np.isin(data[['x','y','p']],active_pixels[px])
                 relative_times = data[mask]["t"]
-                images_group[item].extend([relative_times])
+                images_group[item].extend([relative_times])'''
+            mask = np.zeros(34*34*2,dtype=bool)
+            mask[active_pixels["y"]*34*2+active_pixels["x"]] = True
+            images_group[item] = data[mask]['t']
+
         return images_group, labels_group
 
     def evaluate(self):
         if recording:
-            '''events_mm_out = mm_out.get("events")
+            events_mm_out = mm_out.get("events")
 
             readout_signal = events_mm_out["readout_signal"]
             target_signal = events_mm_out["target_signal"]
@@ -576,11 +589,13 @@ class TrainingPipeline:
             self.results_dict["loss"].extend(loss)
             self.results_dict["label"].append(self.phase_label_previous)
 
-            self.error = errors[0]'''
+            self.error = errors[0]
 
     def run_phase(self, phase_label, eta, images, labels):
         params_common_syn_eprop["optimizer"]["eta"] = eta
         nest.SetDefaults("eprop_synapse", params_common_syn_eprop)
+
+        images, labels = self.get_batch(test_dataset, test_idx)
 
         params_gen_spk_in, params_gen_rate_target, params_gen_learning_window = get_params_task_input_output(
             self.n_iter_sim, images, labels
@@ -628,9 +643,8 @@ class TrainingPipeline:
                 self.early_stop = np.mean(errors_early_stop) < stop_crit
 
     def run_test(self):
-        images, labels = self.get_batch(test_dataset, test_idx)
         for _ in range(n_iter_test):
-            self.run_phase("test", eta_test, images, labels)
+            self.run_phase("test", eta_test)
 
     def simulate(self, k):
         nest.Simulate(duration[k])

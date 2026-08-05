@@ -63,6 +63,10 @@ except:
     np.savetxt("pixel_activations.csv", X=active_pixels, header="p, x, y", delimiter=",",fmt='%i')
     active_pixels = np.loadtxt("pixel_activations.csv", skiprows=1, delimiter=",",dtype=[('p',np.int8),('x',np.int8),('y',np.int8)])
 
+#no. samples for each class in the MNIST dataset
+MNIST_training=np.asarray([5923,6742,5958,6131,5842,5421,5918,6265,5851,5949])
+MNIST_test=np.asarray([980,1135,1032,1010,982,892,958,1028,974,1009])
+
 # TODO: make into structured array when saving not just loading
 active_pixels = active_pixels[['x','y','p']]
 
@@ -78,18 +82,34 @@ def hashpixel(x,y,p,width):
     return y*width*p + x'''
 
 #%% get only active pixels from dataset
+import time
 
-def get_active(dataset,indices):
-    images_group = [[] for _ in ]
-    labels_group = []
-    for item, idx in enumerate(indices):
-        data, label = dataset[idx]
-        labels_group.extend([label])
-        for px in range(n_in):
-            mask = np.isin(data[['x','y','p']],active_pixels[px])
-            relative_times = data[mask]["t"]
-            images_group[item].extend([relative_times])
-    return {"spikes":np.asarray(images_group),"labels":np.asarray(labels)}
+def get_active(dataset,index):
+    image = []
+    data, label = dataset[index]
+    for px in range(n_in):
+        mask = np.isin(data[['x','y','p']],active_pixels[px])
+        relative_times = data[mask]["t"]
+        image.append(relative_times)
+    print(image)
+    return image
 
-
-np.save(f"{dataset_dir}{NMNIST_dir}/train/",get_active(train_dataset))
+labels = range(10)
+for label in labels:
+    os.makedirs(f"{dataset_dir}{NMNIST_dir}/Train/{label}", exist_ok=True)
+    os.makedirs(f"{dataset_dir}{NMNIST_dir}/Test/{label}", exist_ok=True)
+    offset_train = 0
+    offset_test = 0
+    for i in range(MNIST_training[label]):
+        start = time.perf_counter()
+        np.savez(f"{dataset_dir}{NMNIST_dir}/Train/{label}/{i}.npz",get_active(train_dataset,i+offset_train))
+        stop = time.perf_counter()
+        print("process time: ",stop-start)
+    offset_train = np.sum(MNIST_training[:label])
+    for i in range(MNIST_test[label]):
+        start = time.perf_counter()
+        np.savez(f"{dataset_dir}{NMNIST_dir}/Test/{label}/{i}.npz",get_active(test_dataset,i+offset_test))
+        stop = time.perf_counter()
+        print("process time: ",stop-start)
+    offset_test = np.sum(MNIST_test[:label])
+# %%
