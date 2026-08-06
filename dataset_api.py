@@ -11,12 +11,12 @@ class MNIST_loader:
         self.test_dataset = None
         self.test_idx = None
         self.active_pixels = None
-        self.train_batch = 0
-        self.val_batch = 0
-        self.test_batch = 0
+        self.current_train_idx = 0
+        self.current_val_idx = 0
+        self.current_test_idx = 0
 
     def setup_MNIST(self,activity_threshold=0.02,val_split=0.1,show_plots=False):
-
+        from tonic.datasets import NMNIST
         self.train_dataset = NMNIST(save_to="./", train=True)
         self.test_dataset = NMNIST(save_to="./", train=False)
 
@@ -26,12 +26,11 @@ class MNIST_loader:
         np.random.shuffle(self.train_idx) # randomise data order
 
         val_split_idx = int((1-val_split) * len(self.train_dataset))
-        self.val_idx = self.train_idxs[val_split_idx:]
+        self.val_idx = self.train_idx[val_split_idx:]
         self.train_idx = self.train_idx[:val_split_idx]
 
         if show_plots:
             import matplotlib.pyplot as plt
-        from tonic.datasets import NMNIST
         try:
             self.active_pixels = np.loadtxt("pixel_activations.csv", skiprows=1, delimiter=",",dtype=[('p',np.int8),('x',np.int8),('y',np.int8)])
         except:
@@ -66,16 +65,47 @@ class MNIST_loader:
 
             np.savetxt("pixel_activations.csv", X=active_pixels, header="p, x, y", delimiter=",",fmt='%i')
             self.active_pixels = np.loadtxt("pixel_activations.csv", skiprows=1, delimiter=",",dtype=[('p',np.int8),('x',np.int8),('y',np.int8)])
+        self.active_pixels = self.active_pixels[['x','y','p']]
+        num_classes = 10
+
+        return self.active_pixels.size, num_classes
 
     def training_loader(self):
-        
+        #TODO: what to do about referencing duration, group size etc? if small just add to class init
+        # if large must integrate into setup_api classes somehow :(
+        end_index = self.current_index + self.group_size
+
+        selected_indices = np.take(self.train_idx, range(self.current_train_idx, end_index), mode="wrap")
+
+        self.current_train_idx = (self.current_train_idx + self.group_size) % len(self.train_idx)
+
+        # filter out inactive pixels and return as flattened array n, relative_times
+        # TODO: switch to hashing pixels, current method too slow
+        # e.g.
+        # lookup = np.zeros(H*W, dtype=bool)
+        # lookup[wanted["y"] * W + wanted["x"]] = True
+        # mask = lookup.reshape(H,W)
+        spikes = [[] for _ in selected_indices]
+        labels = []
+        for item, idx in enumerate(selected_indices):
+            data, label = self.train_dataset[idx]
+            labels.extend([label])
+            data["t"] = np.around(data["t"] * self.duration['sequence'] / t_max)
+            '''
+            for px in range(n_in):
+                mask = np.isin(data[['x','y','p']],active_pixels[px])
+                relative_times = data[mask]["t"]
+                images_group[item].extend([relative_times])'''
+            mask = np.zeros(34*34*2,dtype=bool)
+            mask[self.active_pixels["y"]*34*2+self.active_pixels["x"]] = True
+            spikes[item] = data[mask]['t']
         return spikes,labels
 
-    def validation_loader(self):
+    '''def validation_loader(self):
         return spikes,labels
 
     def test_loader(self):
-        return spikes,labels
+        return spikes,labels'''
 
 #%% Spiking speech commands
 

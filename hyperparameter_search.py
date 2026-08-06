@@ -1,3 +1,5 @@
+#%% import
+
 import optuna
 import numpy as np
 
@@ -6,24 +8,31 @@ import dataset_api
 
 #%% NMNIST hyperparameter search
 
-active_pixels = dataset_api.setup_MNIST()
-n_in = active_pixels.size
-
+# load MNIST batch loader and initialise dataset
+data_loader = dataset_api.MNIST_loader()
+n_in, n_out = data_loader.setup_MNIST()
+#%%
 # using standard LIF
 def LIF_objective(trial):
 
     # neuron parameters
-    params_rec_nrn = {
-        "tau_m": trial.suggest_float('leakage')
+    tau_m = trial.suggest_float('leakage') #leakage time constant
+
+    params_nrn_out = {
+        "tau_m": tau_m
     }
-    data_loader = dataset_api.MNIST_loader()
-    data_loader.setup_MNIST(activity_threshold=0.02,val_split=0.1)
+
+    params_nrn_rec = {
+        "tau_m": tau_m
+    }
+
+    data_loader.setup_MNIST(activity_threshold=0.02,val_split=0.1) # manually delete pixel_activations.csv to reinitialise
     model = setup_api.eprop_model(data_loader)
     model.input_layer(n_in)
-    model.recurrent_layer(trial.suggest_int('reccurent_neurons',50,200,step=25),params_rec_nrn)
-    model.output_layer()
-    model.compile()
-    model.fit(profiling='sparse')
+    model.recurrent_layer(trial.suggest_int('reccurent_neurons',50,200,step=25),params_nrn_rec)
+    model.output_layer(n_out,params_nrn_out)
+    model.compile(profiling='sparse')
+    model.fit()
 
     results = model.get_results()
 
