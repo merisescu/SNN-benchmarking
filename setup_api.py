@@ -21,7 +21,7 @@ class Trainer:
         self.error = 0
         self.k_iter = 0
         self.early_stop = False
-        self.profiling =='sparse'
+        self.profiling ='sparse'
 
     def evaluate(self):
         events_mm_out = self.mm_out.get("events")
@@ -95,7 +95,7 @@ class Trainer:
     def run_test(self):
         self.run_phase("test",0,self.batch_loader.test_loader)
 
-    def fit(self,n_iter_train,group_size=100):
+    def fit(self,n_iter_train=200,group_size=100):
         self.group_size = group_size
         while self.k_iter < n_iter_train and not self.early_stop:
             self.run_validation()
@@ -111,7 +111,7 @@ class Trainer:
 class eprop_model(Trainer):
 
     def __init__(self,batch_loader):
-        Trainer.__init(self,batch_loader)
+        Trainer.__init__(self,batch_loader)
         self.in_shape = 0
         self.out_shape = 0
         self.rec_shape = 0
@@ -165,7 +165,7 @@ class eprop_model(Trainer):
             }
 
         self.mm_out = nest.Create("multimeter", params_mm_out)
-        
+
         if verbose:
             print("compiled")
 

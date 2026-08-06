@@ -16,6 +16,7 @@ n_in, n_out = data_loader.setup_MNIST()
 def LIF_objective(trial):
 
     # neuron parameters
+    # TODO: add all necessary hyperparameters
     tau_m = trial.suggest_float('leakage') #leakage time constant
 
     params_nrn_out = {
@@ -32,7 +33,7 @@ def LIF_objective(trial):
     model.recurrent_layer(trial.suggest_int('reccurent_neurons',50,200,step=25),params_nrn_rec)
     model.output_layer(n_out,params_nrn_out)
     model.compile(profiling='sparse')
-    model.fit()
+    model.fit(n_iter_train=200,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
     results = model.get_results()
 
