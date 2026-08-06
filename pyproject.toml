@@ -12,6 +12,7 @@ dependencies = [
     "matplotlib>=3.11.1",
     "nest-simulator>=3.10.0",
     "numpy==2.4.6",
+    "optuna>=4.9.0",
     "tonic>=1.6.0",
 ]
 

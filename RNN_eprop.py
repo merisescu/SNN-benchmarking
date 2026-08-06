@@ -248,9 +248,7 @@ params_nrn_rec = {
     "E_L": V_m,
     "eprop_isi_trace_cutoff": 100,
     "f_target": f_target,  # spikes/s, target firing rate for firing rate regularization
-    "flush_event_send_interval": duration[
-        "time_per_trial"
-    ],  # ms, inactivity period before flushing outgoing synapses to free memory
+    "flush_event_send_interval": duration["time_per_trial"],  # ms, inactivity period before flushing outgoing synapses to free memory
     "I_e": 0.0, # (not used)
     "kappa": 0.99,  # low-pass filter of the eligibility trace
     "kappa_reg": 0.99,  # low-pass filter of the firing rate for regularization
