@@ -137,6 +137,7 @@ class eprop_model(Trainer):
             model = 'eprop_iaf'
 
         scale_factor = 1.0 - params["kappa"]  # factor for rescaling due to removal of irregular spike arrival
+        params["c_reg"] /= self.duration["step"]
         params["c_reg"] /= scale_factor**2 
         self.nrns_rec = nest.Create(model,self.rec_shape,params)
         self.eta_train = 5e-3 * scale_factor**2  # learning rate for training phase

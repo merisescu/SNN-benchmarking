@@ -21,11 +21,13 @@ params_nrn_out = {
 params_nrn_rec = {
     "tau_m": 30,
     "kappa": 0.99,
+    "c_reg": 2,
     "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff
 }
 
 data_loader.setup_MNIST(activity_threshold=0.02,val_split=0.1) # manually delete pixel_activations.csv to reinitialise
 model = setup_api.eprop_model(data_loader)
+model.set_timing()
 model.input_layer(n_in)
 model.recurrent_layer(150,params_nrn_rec)
 model.output_layer(n_out,params_nrn_out)
