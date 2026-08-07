@@ -59,8 +59,8 @@ class Trainer:
         self.error = errors[0]
 
     def run_phase(self,phase_label,eta,loader):
-        params_common_syn_eprop["optimizer"]["eta"] = eta
-        nest.SetDefaults("eprop_synapse", params_common_syn_eprop)
+        self.params_common_syn_eprop["optimizer"]["eta"] = eta
+        nest.SetDefaults("eprop_synapse", self.params_common_syn_eprop)
 
         params_gen_spk_in, params_gen_rate_target, params_gen_learning_window = self.classifier_signals(
             self.n_iter_sim, loader
@@ -106,6 +106,9 @@ class Trainer:
             print('epoch: ', self.k_iter)
         return
 
+    def simulate(self, k):
+            nest.Simulate(self.duration[k])
+
 
 #%%
 
@@ -116,6 +119,8 @@ class eprop_model(Trainer):
         self.in_shape = 0
         self.out_shape = 0
         self.rec_shape = 0
+        nest.ResetKernel()
+        nest.verbosity = nest.VerbosityLevel.FATAL
 
     def input_layer(self,n_in):
         self.in_shape = n_in
@@ -143,21 +148,23 @@ class eprop_model(Trainer):
         self.nrns_rec = nest.Create(model,self.rec_shape,params)
         self.eta_train = 5e-3 * scale_factor**2  # learning rate for training phase
 
-    def set_timing(self,params):
-        return
+    def set_timing(self,resolution,delay,params):
+        self.params_setup = {"resolution": resolution}
+        params.update({
+            "offset_gen": 1,
+            "delay_in_rec": delay,
+            "extension_sim": 1,
+            "final_update": 3
+        })
+        params['delays'] = params['delay_in_rec'] # keep both keys just in case
 
-    def recorders(self):
-        return
+        params['total_offset'] = params['offset_gen'] + params['delays']
 
-    def connect(self):
-        return
+        self.duration = {'step': resolution}
 
-    def compile(self,profiling='sparse',verbose=True):
-        nest.ResetKernel()
-        #nest.set(**params_setup)
-        nest.Connect()
-        nest.verbosity = nest.VerbosityLevel.FATAL
+        self.duration.update({key: value * self.duration['step'] for key, value in params.items()})
 
+    def recorders(self,nrns_sampled=1,syns_sampled=5,profiling='sparse'):
         if profiling=='sparse':
             params_mm_out = {
                 "interval": self.duration["step"],
@@ -165,8 +172,53 @@ class eprop_model(Trainer):
                 "start": self.duration["total_offset"],
                 "label": "multimeter_out",
             }
-
         self.mm_out = nest.Create("multimeter", params_mm_out)
+        return
+
+    def connect(self,optimizer='gradient_descent'):
+
+        params_conn_all_to_all = {"rule": "all_to_all", "allow_autapses": False}
+        params_conn_one_to_one = {"rule": "one_to_one"}
+
+        def calculate_glorot_dist(fan_in, fan_out):
+            glorot_scale = 1.0 / max(1.0, (fan_in + fan_out) / 2.0)
+            glorot_limit = np.sqrt(3.0 * glorot_scale)
+            glorot_distribution = np.random.uniform(low=-glorot_limit, high=glorot_limit, size=(fan_in, fan_out))
+            return glorot_distribution
+
+
+        def create_mask(weights, sparsity_level):
+            return np.random.choice([0, 1], weights.shape, p=[sparsity_level, 1 - sparsity_level])
+
+
+        def get_weight_recorder_senders_targets(weights, sender_pop, target_pop):
+            target_idc, sender_idc = np.where(weights)
+            senders = sender_pop[np.unique(sender_idc[:n_record_w])]
+            targets = target_pop[np.unique(target_idc[:n_record_w])]
+            return senders, targets
+
+
+        params_common_syn_eprop = {
+            "optimizer": {
+                "type": optimizer,  # algorithm to optimize the weights
+                "batch_size": 1, # probably leave this at 1, this just witholds updates, doesnt actually parallelise anything
+                "optimize_each_step": False,  # call optimizer every time step (True) or once per spike (False); both
+                # yield same results for gradient descent, False offers speed-up
+                "Wmin": -100.0,  # pA, minimal limit of the synaptic weights
+                "Wmax": 100.0,  # pA, maximal limit of the synaptic weights
+            },
+            "weight_recorder": wr,
+        }
+
+        nest.SetDefaults("eprop_synapse", params_common_syn_eprop)
+        nest.Connect(self.gen_spk_in, self.nrns_in, )
+
+        gen_spk_final_update = nest.Create("spike_generator", 1)
+        nest.Connect(gen_spk_final_update, self.nrns_in + self.nrns_rec, "all_to_all", {"weight": 1000.0})
+        return
+
+    def compile(self,verbose=True):
+        nest.set(**self.params_setup)
 
         if verbose:
             print("compiled")
