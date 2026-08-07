@@ -97,6 +97,7 @@ class Trainer:
 
     def fit(self,n_iter_train=200,group_size=100):
         self.group_size = group_size
+        self.batch_loader.group_size = group_size
         while self.k_iter < n_iter_train and not self.early_stop:
             self.run_validation()
             self.run_early_stopping()
@@ -170,7 +171,11 @@ class eprop_model(Trainer):
         if verbose:
             print("compiled")
 
-    def classifier_signals(self):
+    def classifier_signals(self,loader):
+
+        input_group, target_group = loader()
+        input_group = np.around(input_group * self.duration['sequence'] / 336040)
+
         spike_times = [[] for _ in range(self.in_shape)]
         
         iteration_offset = self.n_iter_sim * self.group_size * self.duration["sequence"]

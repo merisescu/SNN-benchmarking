@@ -32,7 +32,7 @@ model.input_layer(n_in)
 model.recurrent_layer(150,params_nrn_rec)
 model.output_layer(n_out,params_nrn_out)
 model.compile(profiling='sparse')
-#model.fit(n_iter_train=200,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+model.fit(n_iter_train=200,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
 #results = model.get_results()
 

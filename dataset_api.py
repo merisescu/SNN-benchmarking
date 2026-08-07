@@ -66,39 +66,31 @@ class MNIST_loader:
             np.savetxt("pixel_activations.csv", X=active_pixels, header="p, x, y", delimiter=",",fmt='%i')
             self.active_pixels = np.loadtxt("pixel_activations.csv", skiprows=1, delimiter=",",dtype=[('p',np.int8),('x',np.int8),('y',np.int8)])
         self.active_pixels = self.active_pixels[['x','y','p']]
+        self.n_in = self.active_pixles.size
         num_classes = 10
 
-        return self.active_pixels.size, num_classes
+        return self.n_in, num_classes
 
     def training_loader(self):
-        #TODO: what to do about referencing duration, group size etc? if small just add to class init
-        # if large must integrate into setup_api classes somehow :(
         end_index = self.current_index + self.group_size
 
         selected_indices = np.take(self.train_idx, range(self.current_train_idx, end_index), mode="wrap")
 
         self.current_train_idx = (self.current_train_idx + self.group_size) % len(self.train_idx)
 
-        # filter out inactive pixels and return as flattened array n, relative_times
-        # TODO: switch to hashing pixels, current method too slow
-        # e.g.
-        # lookup = np.zeros(H*W, dtype=bool)
-        # lookup[wanted["y"] * W + wanted["x"]] = True
-        # mask = lookup.reshape(H,W)
         spikes = [[] for _ in selected_indices]
         labels = []
         for item, idx in enumerate(selected_indices):
             data, label = self.train_dataset[idx]
             labels.extend([label])
-            data["t"] = np.around(data["t"] * self.duration['sequence'] / t_max)
-            '''
-            for px in range(n_in):
-                mask = np.isin(data[['x','y','p']],active_pixels[px])
-                relative_times = data[mask]["t"]
-                images_group[item].extend([relative_times])'''
+            hash = (data['y'] * 34 + data['x']) * 2 + data['p']
+            hash = np.argsort(hash)
+            data = data[hash]
+            data = data['t']
+
             mask = np.zeros(34*34*2,dtype=bool)
-            mask[self.active_pixels["y"]*34*2+self.active_pixels["x"]] = True
-            spikes[item] = data[mask]['t']
+            mask[(self.active_pixels["y"]*34 + self.active_pixels["x"]) * 2 + self.active_pixels['p']] = True
+            spikes[item] = data[mask]
         return spikes,labels
 
     '''def validation_loader(self):

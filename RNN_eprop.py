@@ -542,14 +542,11 @@ class TrainingPipeline:
             data, label = dataset[idx]
             labels_group.extend([label])
             data["t"] = np.around(data["t"] * time_per_trial / t_max)
-            '''
+            
             for px in range(n_in):
                 mask = np.isin(data[['x','y','p']],active_pixels[px])
                 relative_times = data[mask]["t"]
-                images_group[item].extend([relative_times])'''
-            mask = np.zeros(34*34*2,dtype=bool)
-            mask[active_pixels["y"]*34*2+active_pixels["x"]] = True
-            images_group[item] = data[mask]['t']
+                images_group[item].extend([relative_times])
 
         return images_group, labels_group
 
