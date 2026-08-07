@@ -82,16 +82,47 @@ class MNIST_loader:
         spikes = [[] for _ in selected_indices]
         labels = []
         for item, idx in enumerate(selected_indices):
+            '''
             data, label = self.train_dataset[idx]
+            print(data)
+            print(len(data))
             labels.extend([label])
             hash = (data['y'] * 34 + data['x']) * 2 + data['p']
-            hash = np.argsort(hash)
-            data = data[hash]
+            order = np.argsort(hash)
+            hash = hash[order]
+            data = data[order]
+            print(data)
+            print(len(data))
             data = data['t']
 
+            print(data)
+            print(len(data))
+
+            unique_hashes, first = np.unique(hash, return_index=True)
+            groups = np.split(data, first[1:])
+            result = [[] for _ in range(34*34*2)]
+
+            for h, g in zip(unique_hashes, groups):
+                result[h] = list(g)
+
             mask = np.zeros(34*34*2,dtype=bool)
-            mask[(self.active_pixels["y"]*34 + self.active_pixels["x"]) * 2 + self.active_pixels['p']] = True
-            spikes[item] = data[mask]
+            #mask[(self.active_pixels["y"]*34 + self.active_pixels["x"]) * 2 + self.active_pixels['p']] = True
+            print(mask)
+            print(len(mask))
+
+            selected = [result[h] for h in mask]
+
+            print(selected)
+
+            #spikes[item] = data[mask]'''
+
+            data, label = self.train_dataset[idx]
+            labels.extend([label])
+            
+            for px in range(self.n_in):
+                mask = np.isin(data[['x','y','p']],self.active_pixels[px])
+                relative_times = data[mask]["t"]
+                spikes[item].extend([relative_times])
         return spikes,labels
 
     '''def validation_loader(self):

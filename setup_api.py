@@ -353,7 +353,6 @@ class eprop_model(Trainer):
 
         input_group, target_group = loader()
         # TODO: remove hardcoding of t_max = 336040
-        input_group = np.around(input_group * self.duration['sequence'] / 336040)
 
         spike_times = [[] for _ in range(self.in_shape)]
         
@@ -375,6 +374,7 @@ class eprop_model(Trainer):
                 if len(relative_times) > 0:
                     #print(n, relative_times)
                     relative_times = np.array(relative_times)
+                    relative_times = np.around(relative_times * self.duration['sequence'] / 336040)
                     spike_times[n].extend(
                         iteration_offset + group_element * self.duration["sequence"] + relative_times + self.duration["offset_gen"]
                     )
