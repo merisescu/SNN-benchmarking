@@ -5,6 +5,7 @@ import numpy as np
 
 class MNIST_loader:
     def __init__(self):
+        self.group_size = 1
         self.train_dataset = None
         self.train_idx = None
         self.val_idx = None
@@ -72,7 +73,7 @@ class MNIST_loader:
         return self.n_in, num_classes
 
     def training_loader(self):
-        end_index = self.current_index + self.group_size
+        end_index = self.current_train_idx + self.group_size
 
         selected_indices = np.take(self.train_idx, range(self.current_train_idx, end_index), mode="wrap")
 

@@ -62,9 +62,7 @@ class Trainer:
         self.params_common_syn_eprop["optimizer"]["eta"] = eta
         nest.SetDefaults("eprop_synapse", self.params_common_syn_eprop)
 
-        params_gen_spk_in, params_gen_rate_target, params_gen_learning_window = self.classifier_signals(
-            self.n_iter_sim, loader
-        )
+        params_gen_spk_in, params_gen_rate_target, params_gen_learning_window = self.classifier_signals(loader)
         self.gen_spk_in.set(params_gen_spk_in)
         self.gen_rate_target.set(params_gen_rate_target)
         self.gen_learning_window.set(params_gen_learning_window)
