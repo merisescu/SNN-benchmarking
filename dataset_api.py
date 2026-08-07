@@ -66,7 +66,7 @@ class MNIST_loader:
             np.savetxt("pixel_activations.csv", X=active_pixels, header="p, x, y", delimiter=",",fmt='%i')
             self.active_pixels = np.loadtxt("pixel_activations.csv", skiprows=1, delimiter=",",dtype=[('p',np.int8),('x',np.int8),('y',np.int8)])
         self.active_pixels = self.active_pixels[['x','y','p']]
-        self.n_in = self.active_pixles.size
+        self.n_in = self.active_pixels.size
         num_classes = 10
 
         return self.n_in, num_classes

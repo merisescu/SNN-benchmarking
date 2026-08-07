@@ -116,11 +116,30 @@ class eprop_model(Trainer):
 
     def __init__(self,batch_loader):
         Trainer.__init__(self,batch_loader)
+        self.verbose = True
         self.in_shape = 0
         self.out_shape = 0
         self.rec_shape = 0
         nest.ResetKernel()
         nest.verbosity = nest.VerbosityLevel.FATAL
+
+    
+    def timing(self,resolution,delay,params):
+        self.params_setup = {"resolution": resolution}
+        nest.set(**self.params_setup)
+        params.update({
+            "offset_gen": 1,
+            "delay_in_rec": delay,
+            "extension_sim": 1,
+            "final_update": 3
+        })
+        params['delays'] = params['delay_in_rec'] # keep both keys just in case
+
+        params['total_offset'] = params['offset_gen'] + params['delays']
+
+        self.duration = {'step': resolution}
+
+        self.duration.update({key: value * self.duration['step'] for key, value in params.items()})
 
     def input_layer(self,n_in):
         self.in_shape = n_in
@@ -142,41 +161,59 @@ class eprop_model(Trainer):
         else:
             model = 'eprop_iaf'
 
-        scale_factor = 1.0 - params["kappa"]  # factor for rescaling due to removal of irregular spike arrival
+        self.scale_factor = 1.0 - params["kappa"]  # factor for rescaling due to removal of irregular spike arrival
         params["c_reg"] /= self.duration["step"]
-        params["c_reg"] /= scale_factor**2 
+        params["c_reg"] /= self.scale_factor**2 
         self.nrns_rec = nest.Create(model,self.rec_shape,params)
-        self.eta_train = 5e-3 * scale_factor**2  # learning rate for training phase
 
-    def set_timing(self,resolution,delay,params):
-        self.params_setup = {"resolution": resolution}
-        params.update({
-            "offset_gen": 1,
-            "delay_in_rec": delay,
-            "extension_sim": 1,
-            "final_update": 3
-        })
-        params['delays'] = params['delay_in_rec'] # keep both keys just in case
-
-        params['total_offset'] = params['offset_gen'] + params['delays']
-
-        self.duration = {'step': resolution}
-
-        self.duration.update({key: value * self.duration['step'] for key, value in params.items()})
-
-    def recorders(self,nrns_sampled=1,syns_sampled=5,profiling='sparse'):
+    def recorders(self,neurons_sampled=1,synapses_sampled=5,profiling='sparse'):
+        self.n_record = neurons_sampled
+        self.n_record_w = synapses_sampled
+        # only record during final epoch (not compatible with early stopping)
         if profiling=='sparse':
-            params_mm_out = {
-                "interval": self.duration["step"],
-                "record_from": ["error_signal"],
-                "start": self.duration["total_offset"],
-                "label": "multimeter_out",
-            }
+            start = self.duration['total_offset']
+        params_mm_out = {
+            "interval": self.duration["step"],
+            "record_from": ["V_m", "readout_signal", "target_signal", "error_signal"],
+            "start": start,
+            "label": "multimeter_out",
+        }
+        
+        params_mm_rec = {
+            "interval": self.duration["step"],  # interval between two recorded time points
+            "record_from": ["V_m", "surrogate_gradient", "learning_signal"],  # dynamic variables to record
+            "start": start,  # start time of recording
+            "label": "multimeter_rec",
+        }
+
+        params_wr = {
+            "senders": self.nrns_in[:self.n_record_w] + self.nrns_rec[:self.n_record_w],  # limit senders to subsample weights to record
+            "targets": self.nrns_rec[:self.n_record_w] + self.nrns_out,  # limit targets to subsample weights to record from
+            "start": start,
+            "label": "weight_recorder",
+        }
+
+        params_sr_in = {
+            "start": start,
+            "label": "spike_recorder_in",
+        }
+
+        params_sr_rec = {
+            "start": start,
+            "label": "spike_recorder_rec",
+        }
+
+
+        self.mm_rec = nest.Create("multimeter", params_mm_rec)
         self.mm_out = nest.Create("multimeter", params_mm_out)
+        self.sr_in = nest.Create("spike_recorder", params_sr_in)
+        self.sr_rec = nest.Create("spike_recorder", params_sr_rec)
+        self.wr = nest.Create("weight_recorder", params_wr)
+
+        self.nrns_rec_record = self.nrns_rec[:self.n_record]
         return
 
-    def connect(self,optimizer='gradient_descent'):
-
+    def connect(self,sparsity=[0.9,0.99,0],eta_train=5e-3,eta_test=0,optimizer='gradient_descent'):
         params_conn_all_to_all = {"rule": "all_to_all", "allow_autapses": False}
         params_conn_one_to_one = {"rule": "one_to_one"}
 
@@ -193,12 +230,34 @@ class eprop_model(Trainer):
 
         def get_weight_recorder_senders_targets(weights, sender_pop, target_pop):
             target_idc, sender_idc = np.where(weights)
-            senders = sender_pop[np.unique(sender_idc[:n_record_w])]
-            targets = target_pop[np.unique(target_idc[:n_record_w])]
+            senders = sender_pop[np.unique(sender_idc[:self.n_record_w])]
+            targets = target_pop[np.unique(target_idc[:self.n_record_w])]
             return senders, targets
 
+        weights_in_rec = np.array(np.random.randn(self.in_shape, self.rec_shape).T / np.sqrt(self.in_shape))
+        weights_rec_rec = np.array(np.random.randn(self.rec_shape, self.rec_shape).T / np.sqrt(self.rec_shape))
+        np.fill_diagonal(weights_rec_rec, 0.0)  # since no autapses set corresponding weights to zero
+        weights_rec_out = np.array(calculate_glorot_dist(self.rec_shape, self.out_shape).T) * self.scale_factor
+        weights_out_rec = np.array(np.random.randn(self.rec_shape, self.out_shape)) / self.scale_factor
 
-        params_common_syn_eprop = {
+        sparsity_level_in_rec = sparsity[0]
+        sparsity_level_rec_rec = sparsity[1]
+        sparsity_level_rec_out = sparsity[2]
+
+        weights_in_rec *= create_mask(weights_in_rec, sparsity_level_in_rec)
+        weights_rec_rec *= create_mask(weights_rec_rec, sparsity_level_rec_rec)
+        weights_rec_out *= create_mask(weights_rec_out, sparsity_level_rec_out)
+
+        senders_in_rec, targets_in_rec = get_weight_recorder_senders_targets(weights_in_rec, self.nrns_in, self.nrns_rec)
+        senders_rec_rec, targets_rec_rec = get_weight_recorder_senders_targets(weights_rec_rec, self.nrns_rec, self.nrns_rec)
+        senders_rec_out, targets_rec_out = get_weight_recorder_senders_targets(weights_rec_out, self.nrns_rec, self.nrns_out)
+
+        self.wr.set(
+            senders=np.unique(np.concatenate([senders_in_rec, senders_rec_rec, senders_rec_out])),
+            targets=np.unique(np.concatenate([targets_in_rec, targets_rec_rec, targets_rec_out])),
+        )
+
+        self.params_common_syn_eprop = {
             "optimizer": {
                 "type": optimizer,  # algorithm to optimize the weights
                 "batch_size": 1, # probably leave this at 1, this just witholds updates, doesnt actually parallelise anything
@@ -207,25 +266,95 @@ class eprop_model(Trainer):
                 "Wmin": -100.0,  # pA, minimal limit of the synaptic weights
                 "Wmax": 100.0,  # pA, maximal limit of the synaptic weights
             },
-            "weight_recorder": wr,
+            "weight_recorder": self.wr,
         }
 
-        nest.SetDefaults("eprop_synapse", params_common_syn_eprop)
-        nest.Connect(self.gen_spk_in, self.nrns_in, )
+        self.eta_test = eta_test  # learning rate for test phase
+        self.eta_train = eta_train * self.scale_factor**2  # learning rate for training phase
+
+        params_syn_base = {
+            "synapse_model": "eprop_synapse",
+            "delay": self.duration["step"],  # ms, dendritic delay
+        }
+
+        params_syn_in = params_syn_base.copy()
+        params_syn_rec = params_syn_base.copy()
+        params_syn_out = params_syn_base.copy()
+
+        params_syn_feedback = {
+            "synapse_model": "eprop_learning_signal_connection",
+            "delay": self.duration["step"],
+            "weight": weights_out_rec,
+        }
+
+        params_syn_learning_window = {
+            "synapse_model": "rate_connection_delayed",
+            "delay": self.duration["step"],
+            "receptor_type": 1,  # receptor type over which readout neuron receives learning window signal
+        }
+
+        params_syn_rate_target = {
+            "synapse_model": "rate_connection_delayed",
+            "delay": self.duration["step"],
+            "receptor_type": 2,  # receptor type over which readout neuron receives target signal
+        }
+
+        params_syn_static = {
+            "synapse_model": "static_synapse",
+            "delay": self.duration["step"],
+        }
+
+        nest.SetDefaults("eprop_synapse", self.params_common_syn_eprop)
+        nest.Connect(self.gen_spk_in, self.nrns_in, params_conn_one_to_one, params_syn_static) # connection 1
+
+        def sparsely_connect(weights, params_syn, nrns_pre, nrns_post):
+            targets, sources = np.where(weights)
+            params_syn["weight"] = weights[targets, sources].flatten()
+            params_syn["delay"] = [params_syn["delay"] for _ in params_syn["weight"]]
+            nrns_pre_arr = np.array(nrns_pre.tolist())
+            nrns_post_arr = np.array(nrns_post.tolist())
+            nest.Connect(nrns_pre_arr[sources], nrns_post_arr[targets], params_conn_one_to_one, params_syn)
+
+        sparsely_connect(weights_in_rec, params_syn_in, self.nrns_in, self.nrns_rec)  # connection 2
+        sparsely_connect(weights_rec_rec, params_syn_rec, self.nrns_rec, self.nrns_rec)  # connection 3
+        sparsely_connect(weights_rec_out, params_syn_out, self.nrns_rec, self.nrns_out)  # connection 4
+
+        nest.Connect(self.nrns_out, self.nrns_rec, params_conn_all_to_all, params_syn_feedback)  # connection 5
+        nest.Connect(self.gen_rate_target, self.nrns_out, params_conn_one_to_one, params_syn_rate_target)  # connection 6
+        nest.Connect(self.gen_learning_window, self.nrns_out, params_conn_all_to_all, params_syn_learning_window)  # connection 7
+
+        nest.Connect(self.nrns_in, self.sr_in, params_conn_all_to_all, params_syn_static)
+        nest.Connect(self.nrns_rec, self.sr_rec, params_conn_all_to_all, params_syn_static)
+
+        nest.Connect(self.mm_rec, self.nrns_rec_record, params_conn_all_to_all, params_syn_static)
+        nest.Connect(self.mm_out, self.nrns_out, params_conn_all_to_all, params_syn_static)
 
         gen_spk_final_update = nest.Create("spike_generator", 1)
         nest.Connect(gen_spk_final_update, self.nrns_in + self.nrns_rec, "all_to_all", {"weight": 1000.0})
-        return
 
     def compile(self,verbose=True):
-        nest.set(**self.params_setup)
-
+        self.verbose = verbose
         if verbose:
-            print("compiled")
+            weights_pre_train = {
+                "in_rec": self.get_weights(self.nrns_in, self.nrns_rec),
+                "rec_rec": self.get_weights(self.nrns_rec, self.nrns_rec),
+                "rec_out": self.get_weights(self.nrns_rec, self.nrns_out),
+            }
+            return weights_pre_train
+
+    def get_weights(self,pop_pre, pop_post):
+        conns = nest.GetConnections(pop_pre, pop_post).get(["source", "target", "weight"])
+        conns["senders"] = np.array(conns["source"]) - np.min(conns["source"])
+        conns["targets"] = np.array(conns["target"]) - np.min(conns["target"])
+
+        conns["weight_matrix"] = np.zeros((len(pop_post), len(pop_pre)))
+        conns["weight_matrix"][conns["targets"], conns["senders"]] = conns["weight"]
+        return conns
 
     def classifier_signals(self,loader):
 
         input_group, target_group = loader()
+        # TODO: remove hardcoding of t_max = 336040
         input_group = np.around(input_group * self.duration['sequence'] / 336040)
 
         spike_times = [[] for _ in range(self.in_shape)]
