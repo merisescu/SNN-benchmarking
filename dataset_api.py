@@ -125,11 +125,29 @@ class MNIST_loader:
                 spikes[item].extend([relative_times])
         return spikes,labels
 
-    '''def validation_loader(self):
-        return spikes,labels
+    def validation_loader(self):
+        return
 
     def test_loader(self):
-        return spikes,labels'''
+        end_index = self.current_test_idx + self.group_size
+        
+        selected_indices = np.take(self.test_idx, range(self.current_test_idx, end_index), mode="wrap")
+
+        self.current_test_idx = (self.current_test_idx + self.group_size) % len(self.test_idx)
+
+        spikes = [[] for _ in selected_indices]
+        labels = []
+        for item, idx in enumerate(selected_indices):
+            
+
+            data, label = self.test_dataset[idx]
+            labels.extend([label])
+            
+            for px in range(self.n_in):
+                mask = np.isin(data[['x','y','p']],self.active_pixels[px])
+                relative_times = data[mask]["t"]
+                spikes[item].extend([relative_times])
+        return spikes,labels
 
 #%% Spiking speech commands
 

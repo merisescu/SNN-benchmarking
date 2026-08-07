@@ -167,8 +167,11 @@ class eprop_model(Trainer):
     def recorders(self,neurons_sampled=1,synapses_sampled=5,profiling='sparse'):
         self.n_record = neurons_sampled
         self.n_record_w = synapses_sampled
+        # TODO: implement SIONlib and other optimisations (reduce/eliminate calls to evaluate during runtime) to reduce memory, runtime
         # only record during final epoch (not compatible with early stopping)
         if profiling=='sparse':
+            start = self.duration['total_offset']
+        elif profiling=='full':
             start = self.duration['total_offset']
         params_mm_out = {
             "interval": self.duration["step"],
