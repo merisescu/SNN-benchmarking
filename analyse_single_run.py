@@ -38,10 +38,10 @@ model.timing(1.0,1,steps)
 model.input_layer(n_in)
 model.recurrent_layer(150,params_nrn_rec)
 model.output_layer(n_out,params_nrn_out)
-model.recorders(profiling='full')
+model.recorders(profiling='full',save_to_disk=False)
 model.connect(sparsity=[0.9,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
 weights_pre_train = model.compile()
-model.fit(n_iter_train=200,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+model.fit(n_iter_train=20,group_size=10) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
 results = model.get_results()
 
