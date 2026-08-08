@@ -102,10 +102,28 @@ class Trainer:
             self.run_training()
             self.k_iter += 1
             print('epoch: ', self.k_iter)
+
+        self.run_test()
+        
+        self.simulate("total_offset")
+        self.simulate("extension_sim")
+
+        self.evaluate()
+
+        self.duration["task"] = self.n_iter_sim * self.group_size * self.duration["sequence"] + self.duration["total_offset"]
+
+        self.gen_spk_final_update.set({"spike_times": [self.duration["task"] + self.duration["extension_sim"] + 1]})
+
+        self.simulate("final_update")
         return
 
     def simulate(self, k):
             nest.Simulate(self.duration[k])
+
+    def get_results(self):
+            for k, v in self.results_dict.items():
+                self.results_dict[k] = np.array(v)
+            return self.results_dict
 
 
 #%%
