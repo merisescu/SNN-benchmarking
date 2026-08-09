@@ -42,7 +42,7 @@ class Trainer:
             target_signal = np.array([target_signal[idc][senders[idc] == i] for i in np.unique(senders)])
 
             readout_signal = readout_signal.reshape((self.out_shape, 1, self.group_size, self.steps["sequence"]))
-            target_signal = target_signal.reshape((self.in_shape, 1, self.group_size, self.steps["sequence"]))
+            target_signal = target_signal.reshape((self.out_shape, 1, self.group_size, self.steps["sequence"]))
 
             readout_signal = readout_signal[:, :, :, -self.steps["learning_window"] :]
             target_signal = target_signal[:, :, :, -self.steps["learning_window"] :]
@@ -54,8 +54,10 @@ class Trainer:
             accuracy = np.mean((y_target == y_prediction), axis=1)
             errors = 1.0 - accuracy
 
-            spikes = self.sr_in.n_events + self.sr_rec.n_events
-
+            spikes = [self.sr_in.n_events + self.sr_rec.n_events]
+            print(errors)
+            print(spikes)
+            print(loss)
             self.results_dict["iteration"].append(self.n_iter_sim)
             self.results_dict["error"].extend(errors)
             self.results_dict["spikes"].extend(spikes)
@@ -191,7 +193,9 @@ class eprop_model(Trainer):
 
         self.scale_factor = 1.0 - params["kappa"]  # factor for rescaling due to removal of irregular spike arrival
         params["c_reg"] /= self.duration["step"]
-        params["c_reg"] /= self.scale_factor**2 
+        params["c_reg"] /= self.scale_factor**2
+
+        params["flush_event_send_interval"] = self.duration["sequence"]
         self.nrns_rec = nest.Create(model,self.rec_shape,params)
 
     def recorders(self,neurons_sampled=1,synapses_sampled=5,profiling='sparse',save_to_disk=True):
@@ -400,8 +404,8 @@ class eprop_model(Trainer):
         nest.Connect(self.mm_rec, self.nrns_rec_record, params_conn_all_to_all, params_syn_static)
         nest.Connect(self.mm_out, self.nrns_out, params_conn_all_to_all, params_syn_static)
 
-        gen_spk_final_update = nest.Create("spike_generator", 1)
-        nest.Connect(gen_spk_final_update, self.nrns_in + self.nrns_rec, "all_to_all", {"weight": 1000.0})
+        self.gen_spk_final_update = nest.Create("spike_generator", 1)
+        nest.Connect(self.gen_spk_final_update, self.nrns_in + self.nrns_rec, "all_to_all", {"weight": 1000.0})
 
     def compile(self,verbose=True):
         self.verbose = verbose

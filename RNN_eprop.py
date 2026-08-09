@@ -565,7 +565,7 @@ class TrainingPipeline:
 
             readout_signal = np.array([readout_signal[idc][senders[idc] == i] for i in np.unique(senders)])
             target_signal = np.array([target_signal[idc][senders[idc] == i] for i in np.unique(senders)])
-
+            print(target_signal.shape)
             readout_signal = readout_signal.reshape((n_out, 1, batch_size, steps["time_per_trial"]))
             target_signal = target_signal.reshape((n_out, 1, batch_size, steps["time_per_trial"]))
 
