@@ -55,9 +55,7 @@ class Trainer:
             errors = 1.0 - accuracy
 
             spikes = [self.sr_in.n_events + self.sr_rec.n_events]
-            print(errors)
-            print(spikes)
-            print(loss)
+
             self.results_dict["iteration"].append(self.n_iter_sim)
             self.results_dict["error"].extend(errors)
             self.results_dict["spikes"].extend(spikes)
@@ -81,12 +79,16 @@ class Trainer:
         self.simulate("extension_sim")
 
         if self.n_iter_sim > 0 and self.profiling=="full":
+            start = time.perf_counter()
             self.evaluate()
+            stop = time.perf_counter()
+            print("evaluation time: ", stop-start)
 
         self.duration["sim"] = self.group_size * self.duration["sequence"] - self.duration["total_offset"] - self.duration["extension_sim"]
-
+        start = time.perf_counter()
         self.simulate("sim")
-
+        stop = time.perf_counter()
+        print("simulation time: ", stop-start)
         self.n_iter_sim += 1
         self.phase_label_previous = phase_label
         return
@@ -186,8 +188,6 @@ class eprop_model(Trainer):
         self.rec_shape = n_rec
         if adaptive:
             model = 'eprop_iaf_adapt'
-            assert "adapt_beta" in params, 'must define a threshold adaptation prefactor with key "adapt_beta"'
-            assert "adapt_tau" in params, 'must define a threshold adaptation time constant (ms) with key "adapt_tau"'
         else:
             model = 'eprop_iaf'
 
@@ -427,10 +427,12 @@ class eprop_model(Trainer):
         return conns
 
     def classifier_signals(self,loader):
-
+        start = time.perf_counter()
         input_group, target_group = loader()
+        stop = time.perf_counter()
+        print("data loading time: ", stop-start)
         # TODO: remove hardcoding of t_max = 336040
-
+        start = time.perf_counter()
         spike_times = [[] for _ in range(self.in_shape)]
         
         iteration_offset = self.n_iter_sim * self.group_size * self.duration["sequence"]
@@ -449,7 +451,6 @@ class eprop_model(Trainer):
             params_gen_rate_target[target_group[group_element]]["amplitude_values"][group_element] = 1.0
             for n, relative_times in enumerate(input_group[group_element]):
                 if len(relative_times) > 0:
-                    #print(n, relative_times)
                     relative_times = np.array(relative_times)
                     relative_times = np.around(relative_times * self.duration['sequence'] / 336040)
                     spike_times[n].extend(
@@ -473,6 +474,9 @@ class eprop_model(Trainer):
         }
     
         params_gen_spk_in = [{"spike_times": spk_times} for spk_times in spike_times]
+
+        stop = time.perf_counter()
+        print("data to signals time: ", stop-start)
     
         return params_gen_spk_in, params_gen_rate_target, params_gen_learning_window
 #%%

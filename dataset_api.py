@@ -1,5 +1,6 @@
 from tonic import transforms
 import numpy as np
+#import time
 
 #%% NMNIST
 

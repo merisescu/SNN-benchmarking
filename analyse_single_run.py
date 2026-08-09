@@ -37,7 +37,14 @@ params_nrn_rec = {
     "V_th": 0.6,
     "t_ref": 0.,
     "kappa": 0.99,
-    "kappa_reg": 0.99
+    "kappa_reg": 0.99,
+    "surrogate_gradient_function": "piecewise_linear",  # surrogate gradient / pseudo-derivative function
+    "surrogate_gradient_height": 0.5,  # height scaling of the pseudo-derivative
+    "surrogate_gradient_width": 1.0 / 1.7,  # width scaling of the pseudo-derivative
+
+    "adapt_beta": 1.0,
+    "adapt_tau": 10,
+
 }
 
 
@@ -47,12 +54,12 @@ data_loader.setup_MNIST(activity_threshold=0.02,val_split=0.1) # manually delete
 model = setup_api.eprop_model(data_loader)
 model.timing(1.0,1,steps)
 model.input_layer(n_in)
-model.recurrent_layer(150,params_nrn_rec)
+model.recurrent_layer(150,params_nrn_rec,adaptive=True)
 model.output_layer(n_out,params_nrn_out)
 model.recorders(profiling='full',save_to_disk=False)
-model.connect(sparsity=[0.9,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
+model.connect(sparsity=[0.75,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
 weights_pre_train = model.compile()
-model.fit(n_iter_train=10,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+model.fit(n_iter_train=200,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
 results = model.get_results()
 
