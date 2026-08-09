@@ -12,6 +12,7 @@ class Trainer:
         self.batch_loader = batch_loader
         self.results_dict = {
             "error": [],
+            "spikes": [],
             "loss": [],
             "iteration": [],
             "label": [],
@@ -24,39 +25,46 @@ class Trainer:
         self.profiling ='sparse'
 
     def evaluate(self):
-        events_mm_out = self.mm_out.get("events")
+        # if saving to disk, do the data analysis separately
+        if not self.save_to_disk:
+            events_mm_out = self.mm_out.get("events")
 
-        readout_signal = events_mm_out["readout_signal"]
-        target_signal = events_mm_out["target_signal"]
-        senders = events_mm_out["senders"]
-        times = events_mm_out["times"]
+            readout_signal = events_mm_out["readout_signal"]
+            target_signal = events_mm_out["target_signal"]
+            senders = events_mm_out["senders"]
+            times = events_mm_out["times"]
 
-        cond1 = times > (self.n_iter_sim - 1) * self.group_size * self.duration["sequence"] + self.duration["total_offset"]
-        cond2 = times <= self.n_iter_sim * self.group_size * self.duration["sequence"] + self.duration["total_offset"]
-        idc = cond1 & cond2
+            cond1 = times > (self.n_iter_sim - 1) * self.group_size * self.duration["sequence"] + self.duration["total_offset"]
+            cond2 = times <= self.n_iter_sim * self.group_size * self.duration["sequence"] + self.duration["total_offset"]
+            idc = cond1 & cond2
 
-        readout_signal = np.array([readout_signal[idc][senders[idc] == i] for i in np.unique(senders)])
-        target_signal = np.array([target_signal[idc][senders[idc] == i] for i in np.unique(senders)])
+            readout_signal = np.array([readout_signal[idc][senders[idc] == i] for i in np.unique(senders)])
+            target_signal = np.array([target_signal[idc][senders[idc] == i] for i in np.unique(senders)])
 
-        readout_signal = readout_signal.reshape((self.out_shape, 1, self.group_size, self.steps["sequence"]))
-        target_signal = target_signal.reshape((self.in_shape, 1, self.group_size, self.steps["sequence"]))
+            readout_signal = readout_signal.reshape((self.out_shape, 1, self.group_size, self.steps["sequence"]))
+            target_signal = target_signal.reshape((self.in_shape, 1, self.group_size, self.steps["sequence"]))
 
-        readout_signal = readout_signal[:, :, :, -self.steps["learning_window"] :]
-        target_signal = target_signal[:, :, :, -self.steps["learning_window"] :]
+            readout_signal = readout_signal[:, :, :, -self.steps["learning_window"] :]
+            target_signal = target_signal[:, :, :, -self.steps["learning_window"] :]
 
-        loss = 0.5 * np.mean(np.sum((readout_signal - target_signal) ** 2, axis=3), axis=(0, 2))
+            loss = 0.5 * np.mean(np.sum((readout_signal - target_signal) ** 2, axis=3), axis=(0, 2))
 
-        y_prediction = np.argmax(np.mean(readout_signal, axis=3), axis=0)
-        y_target = np.argmax(np.mean(target_signal, axis=3), axis=0)
-        accuracy = np.mean((y_target == y_prediction), axis=1)
-        errors = 1.0 - accuracy
+            y_prediction = np.argmax(np.mean(readout_signal, axis=3), axis=0)
+            y_target = np.argmax(np.mean(target_signal, axis=3), axis=0)
+            accuracy = np.mean((y_target == y_prediction), axis=1)
+            errors = 1.0 - accuracy
 
-        self.results_dict["iteration"].append(self.n_iter_sim)
-        self.results_dict["error"].extend(errors)
-        self.results_dict["loss"].extend(loss)
-        self.results_dict["label"].append(self.phase_label_previous)
+            spikes = self.sr_in.n_events + self.sr_rec.n_events
 
-        self.error = errors[0]
+            self.results_dict["iteration"].append(self.n_iter_sim)
+            self.results_dict["error"].extend(errors)
+            self.results_dict["spikes"].extend(spikes)
+            self.results_dict["loss"].extend(loss)
+            self.results_dict["label"].append(self.phase_label_previous)
+
+            self.error = errors[0]
+
+            nest.SetStatus(self.recorders, {"n_events": 0})
 
     def run_phase(self,phase_label,eta,loader):
         self.params_common_syn_eprop["optimizer"]["eta"] = eta
@@ -94,6 +102,7 @@ class Trainer:
         self.run_phase("test",0,self.batch_loader.test_loader)
 
     def fit(self,n_iter_train=200,group_size=100):
+        self.recorders = nest.GetNodes(properties={"element_type": "recorder"})
         self.group_size = group_size
         self.batch_loader.group_size = group_size
         while self.k_iter < n_iter_train and not self.early_stop:
@@ -104,7 +113,7 @@ class Trainer:
             print('epoch: ', self.k_iter)
 
         self.run_test()
-        
+
         self.simulate("total_offset")
         self.simulate("extension_sim")
 
@@ -116,6 +125,7 @@ class Trainer:
 
         self.simulate("final_update")
         return
+        
 
     def simulate(self, k):
             nest.Simulate(self.duration[k])
@@ -153,6 +163,8 @@ class eprop_model(Trainer):
 
         params['total_offset'] = params['offset_gen'] + params['delays']
 
+        self.steps = params
+
         self.duration = {'step': resolution}
 
         self.duration.update({key: value * self.duration['step'] for key, value in params.items()})
@@ -182,17 +194,45 @@ class eprop_model(Trainer):
         params["c_reg"] /= self.scale_factor**2 
         self.nrns_rec = nest.Create(model,self.rec_shape,params)
 
-    def recorders(self,neurons_sampled=1,synapses_sampled=5,profiling='sparse'):
+    def recorders(self,neurons_sampled=1,synapses_sampled=5,profiling='sparse',save_to_disk=True):
         self.n_record = neurons_sampled
         self.n_record_w = synapses_sampled
+        self.profiling = profiling
+        self.save_to_disk = save_to_disk
+        if save_to_disk:
+            nest.SetKernelStatus({
+                "data_path": "./sion/",
+                "recording_backends": {
+                    "sionlib": {
+                        "filename": "run01.sion",
+                        "buffer_size": 4096,
+                        "sion_n_files": 4,
+                        "sion_collective": True
+                    }
+                }
+            })
+        else:
+            self.backend = 'memory'
         # TODO: implement SIONlib and other optimisations (reduce/eliminate calls to evaluate during runtime) to reduce memory, runtime
         # only record during final epoch (not compatible with early stopping)
         if profiling=='sparse':
+            # do not record weights
+            # do not record spike times, only spike number
+            # if using this, individual neuron spiking patterns cannot be observed
+            start = self.duration['total_offset']
+        elif profiling=='before_after':
+            # same as sparse but fully record one epoch before and after
+            # allows computationally efficient spike counting during training
+            # while only giving in depth analysis of the first and last epochs
             start = self.duration['total_offset']
         elif profiling=='full':
+            # enable all recorders at full resolution for all time steps
+            # only ever use this to record single model training
+            # output results can be many GB
             start = self.duration['total_offset']
         params_mm_out = {
             "interval": self.duration["step"],
+            "record_to": self.backend,
             "record_from": ["V_m", "readout_signal", "target_signal", "error_signal"],
             "start": start,
             "label": "multimeter_out",
@@ -200,6 +240,7 @@ class eprop_model(Trainer):
         
         params_mm_rec = {
             "interval": self.duration["step"],  # interval between two recorded time points
+            "record_to": self.backend,
             "record_from": ["V_m", "surrogate_gradient", "learning_signal"],  # dynamic variables to record
             "start": start,  # start time of recording
             "label": "multimeter_rec",
@@ -208,20 +249,30 @@ class eprop_model(Trainer):
         params_wr = {
             "senders": self.nrns_in[:self.n_record_w] + self.nrns_rec[:self.n_record_w],  # limit senders to subsample weights to record
             "targets": self.nrns_rec[:self.n_record_w] + self.nrns_out,  # limit targets to subsample weights to record from
+            "record_to": self.backend,
             "start": start,
             "label": "weight_recorder",
         }
 
         params_sr_in = {
+            "record_to": self.backend,
             "start": start,
             "label": "spike_recorder_in",
         }
 
         params_sr_rec = {
+            "record_to": self.backend,
             "start": start,
             "label": "spike_recorder_rec",
         }
 
+        if profiling=='sparse':
+            params_sr_in['records_to'] = ''
+            params_sr_rec['records_to'] = ''
+        '''elif profiling=='before_after':
+            # same as sparse but fully record one epoch before and after
+            start = self.duration['total_offset']'''
+           
 
         self.mm_rec = nest.Create("multimeter", params_mm_rec)
         self.mm_out = nest.Create("multimeter", params_mm_out)
@@ -230,6 +281,7 @@ class eprop_model(Trainer):
         self.wr = nest.Create("weight_recorder", params_wr)
 
         self.nrns_rec_record = self.nrns_rec[:self.n_record]
+
         return
 
     def connect(self,sparsity=[0.9,0.99,0],eta_train=5e-3,eta_test=0,optimizer='gradient_descent'):
