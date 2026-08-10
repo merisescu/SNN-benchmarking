@@ -34,6 +34,7 @@ params_nrn_rec = {
     "c_reg": 2,
     "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
     "E_L": 0.,
+    "V_m": 0.,
     "V_th": 0.6,
     "t_ref": 0.,
     "kappa": 0.99,
@@ -44,6 +45,8 @@ params_nrn_rec = {
 
     "adapt_beta": 1.0,
     "adapt_tau": 10,
+
+    "f_target": 10, # Hz
 
 }
 
@@ -91,10 +94,6 @@ weights_after = {
             }
 weights_post_train = weights_after
 
-#%% basic tests
-print(len(events_sr_in["times"]))
-print(len(events_sr_rec["times"]))
-
 #%% Visualisation
 from cycler import cycler
 os.makedirs(f"{plots_dir}{timestamp}", exist_ok=True)
@@ -136,8 +135,8 @@ axs[1].axhline(0.95,linestyle='--',linewidth=0.5,color='k',label=r'target')
 
 loss_ma = averages_std_over_time(results["loss"][:-2],3)
 acc_ma = averages_std_over_time(1-results["error"][:-2],3)
-axs[0].plot(results["iteration"][:-2], loss_ma, label='training')
-axs[1].plot(results["iteration"][:-2], acc_ma, label='training')
+#axs[0].plot(results["iteration"][:-2], loss_ma, label='training')
+#axs[1].plot(results["iteration"][:-2], acc_ma, label='training')
 
 axs[0].plot(results["iteration"], results["loss"], label='training')
 axs[1].plot(results["iteration"], 1-results["error"], label='training')
@@ -271,13 +270,10 @@ for k in weights_pre_train.keys():
     all_tails.append([np.percentile(np.abs(w_pre),95),np.percentile(np.abs(w_post),95)])
     all_w_extrema.append([np.min(w_pre), np.max(w_pre), np.min(w_post), np.max(w_post)])
 
-print(len(all_tails))
-
 vmax = np.max([np.abs(np.min(all_w_extrema)),np.min(all_w_extrema)])
 v_tail = np.mean(all_tails)
 
 dist = v_tail/(2*vmax)
-print(dist)
 
 
 cmap = mpl.colors.LinearSegmentedColormap.from_list(

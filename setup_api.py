@@ -192,7 +192,7 @@ class eprop_model(Trainer):
             model = 'eprop_iaf'
 
         self.scale_factor = 1.0 - params["kappa"]  # factor for rescaling due to removal of irregular spike arrival
-        params["c_reg"] /= self.duration["step"]
+        params["c_reg"] /= self.duration["sequence"]
         params["c_reg"] /= self.scale_factor**2
 
         params["flush_event_send_interval"] = self.duration["sequence"]
