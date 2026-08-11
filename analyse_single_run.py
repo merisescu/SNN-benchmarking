@@ -30,7 +30,6 @@ params_nrn_out = {
 
 params_nrn_rec = {
     "tau_m": 30,
-    "kappa": 0.99,
     "c_reg": 2,
     "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
     "E_L": 0.,
@@ -54,15 +53,15 @@ params_nrn_rec = {
 #%%
 
 data_loader.setup_MNIST(activity_threshold=0.02,val_split=0.1) # manually delete pixel_activations.csv to reinitialise
-model = setup_api.eprop_model(data_loader)
+model = setup_api.eprop_model()
 model.timing(1.0,1,steps)
 model.input_layer(n_in)
 model.recurrent_layer(150,params_nrn_rec,adaptive=True)
 model.output_layer(n_out,params_nrn_out)
 model.recorders(profiling='full',save_to_disk=False)
-model.connect(sparsity=[0.75,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
+model.connect(sparsity=[0.8,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
 weights_pre_train = model.compile()
-model.fit(n_iter_train=200,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+model.fit(data_loader,n_iter_train=20,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
 results = model.get_results()
 
@@ -163,6 +162,8 @@ fig.savefig(f"{plots_dir}{timestamp}/learning_over_time.eps")
 
 #%% spiking variables
 
+chosen = model.nrns_rec_record.get("global_id")
+print(chosen)
 def plot_recordable(ax, events, recordable, ylabel, xlims):
     for sender in np.unique(events["senders"]):
         idc_sender = events["senders"] == sender
@@ -177,11 +178,22 @@ def plot_spikes(ax, events, ylabel, xlims):
     idc_times = (events["times"] > xlims[0]) & (events["times"] < xlims[1])
     senders_subset = events["senders"][idc_times]
     times_subset = events["times"][idc_times]
+    chosen_senders = np.asarray(senders_subset)
+    chosen_senders = np.argwhere(chosen_senders==chosen)
+    chosen_times = np.asarray(times_subset)
+    chosen_times = chosen_times[chosen_senders]
+    #print(chosen_times)
+    chosen_r = np.ones(len(chosen_times))*chosen
+    #chosen_spikes = events["senders"][idc_times] == chosen
+    #chosen_senders = events["senders"][chosen_spikes]
+    #chosen_times = events["times"][chosen_spikes]
 
     ax.scatter(times_subset, senders_subset, s=0.1)
+    ax.scatter(chosen_times, chosen_r, s=0.1, c = 'r')
     ax.set_ylabel(ylabel)
     margin = np.abs(np.max(senders_subset) - np.min(senders_subset)) * 0.1
-    ax.set_ylim(np.min(senders_subset) - margin, np.max(senders_subset) + margin)
+    #ax.set_ylim(np.min(senders_subset) - margin, np.max(senders_subset) + margin)
+    ax.set_ylim(2688, 2692)
 
 
 for title, xlims, savename in zip(
@@ -198,6 +210,7 @@ for title, xlims, savename in zip(
     plot_spikes(axs[1], events_sr_rec, r"$z_j$" + "\n", xlims)
 
     plot_recordable(axs[2], events_mm_rec, "V_m", r"$v_j$" + "\n(mV)", xlims)
+    axs[2].axhline(0.6,linestyle='--',linewidth=0.5)
     plot_recordable(axs[3], events_mm_rec, "surrogate_gradient", r"$\psi_j$" + "\n", xlims)
     plot_recordable(axs[4], events_mm_rec, "learning_signal", r"$L_j$" + "\n(pA)", xlims)
 
@@ -235,7 +248,7 @@ def plot_weight_time_course(ax, events, nrns, label, ylabel):
                     )
                     ax.step(times, weights, c=colors["blue"])
         ax.set_ylabel(ylabel)
-        ax.set_ylim(-0.6, 0.6)
+        #ax.set_ylim(np.min(tot_weights)*1.1, np.max(tot_weights)*1.1)
 
 fig, axs = plt.subplots(3, 1, sharex=True, figsize=(3, 4))
 fig.suptitle("Weight time courses")

@@ -1,6 +1,9 @@
 #%% import
-
 import optuna
+from multiprocessing import Pool
+from optuna.storages import JournalStorage
+from optuna.storages.journal import JournalFileBackend
+import os
 import numpy as np
 
 import setup_api
@@ -18,6 +21,7 @@ def LIF_objective(trial):
     # neuron parameters
     # TODO: add all necessary hyperparameters
     tau_m = trial.suggest_float('leakage') #leakage time constant
+    
 
     params_nrn_out = {
         "tau_m": tau_m
@@ -42,8 +46,20 @@ def LIF_objective(trial):
 
     return spikes, accuracy
 
+def run_optimization(_):
+    study = optuna.create_study(
+        study_name="journal_storage_multiprocess",
+        storage=JournalStorage(JournalFileBackend(file_path="./journal.log")),
+        load_if_exists=True, # Useful for multi-process or multi-node optimization.
+    )
+    study.optimize(objective, n_trials=3)
+
 LIF_study = optuna.create_study(directions=['minimize','maximize'],sampler=optuna.samplers.GridSampler())
 LIF_study.optimize(LIF_objective,n_trials=30)
+
+if __name__ == "__main__":
+    with Pool(processes=4) as pool:
+        pool.map(run_optimization, range(12))
 
 # using adaptive LIF
 

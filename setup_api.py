@@ -8,8 +8,8 @@ import time
 # in order to allow for use with any dataset, we use a hook which should be defined outside the class to load each batch
 class Trainer:
 
-    def __init__(self, batch_loader):
-        self.batch_loader = batch_loader
+    def __init__(self):
+        self.batch_loader = None
         self.results_dict = {
             "error": [],
             "spikes": [],
@@ -54,7 +54,9 @@ class Trainer:
             accuracy = np.mean((y_target == y_prediction), axis=1)
             errors = 1.0 - accuracy
 
-            spikes = [self.sr_in.n_events + self.sr_rec.n_events]
+            spikes = [self.sr_rec.n_events]
+            # does not count spikes from the spike generator, this can be found either from self.sr_in.n_events
+            # or take it from the data loader
 
             self.results_dict["iteration"].append(self.n_iter_sim)
             self.results_dict["error"].extend(errors)
@@ -63,8 +65,8 @@ class Trainer:
             self.results_dict["label"].append(self.phase_label_previous)
 
             self.error = errors[0]
-
-            nest.SetStatus(self.recorders, {"n_events": 0})
+            if self.profiling != "full":
+                nest.SetStatus(self.recorders, {"n_events": 0})
 
     def run_phase(self,phase_label,eta,loader):
         self.params_common_syn_eprop["optimizer"]["eta"] = eta
@@ -105,13 +107,15 @@ class Trainer:
     def run_test(self):
         self.run_phase("test",0,self.batch_loader.test_loader)
 
-    def fit(self,n_iter_train=200,group_size=100):
+    def fit(self,batch_loader,n_iter_train=200,group_size=100):
         self.recorders = nest.GetNodes(properties={"element_type": "recorder"})
         self.group_size = group_size
+        self.batch_loader = batch_loader
         self.batch_loader.group_size = group_size
-        while self.k_iter < n_iter_train and not self.early_stop:
-            self.run_validation()
-            self.run_early_stopping()
+
+        while self.k_iter < n_iter_train:
+            #self.run_validation()
+            #self.run_early_stopping()
             self.run_training()
             self.k_iter += 1
             print('epoch: ', self.k_iter)
@@ -144,8 +148,8 @@ class Trainer:
 
 class eprop_model(Trainer):
 
-    def __init__(self,batch_loader):
-        Trainer.__init__(self,batch_loader)
+    def __init__(self):
+        Trainer.__init__(self)
         self.verbose = True
         self.in_shape = 0
         self.out_shape = 0
@@ -192,8 +196,6 @@ class eprop_model(Trainer):
             model = 'eprop_iaf'
 
         self.scale_factor = 1.0 - params["kappa"]  # factor for rescaling due to removal of irregular spike arrival
-        params["c_reg"] /= self.duration["sequence"]
-        params["c_reg"] /= self.scale_factor**2
 
         params["flush_event_send_interval"] = self.duration["sequence"]
         self.nrns_rec = nest.Create(model,self.rec_shape,params)
@@ -271,19 +273,23 @@ class eprop_model(Trainer):
         }
 
         if profiling=='sparse':
-            params_sr_in['records_to'] = ''
-            params_sr_rec['records_to'] = ''
-        '''elif profiling=='before_after':
+            #params_sr_in['record_to'] = ""
+            #params_sr_rec['record_to'] = ""
+            params_mm_out['record_from'] = ["readout_signal", "target_signal"]
+        elif profiling=='before_after':
             # same as sparse but fully record one epoch before and after
-            start = self.duration['total_offset']'''
-           
+            # not implemented yet (will do if theres something more I need 
+            # than just the sparse recording for large simulation counts)
+            start = self.duration['total_offset']
+        elif profiling=='full':
+            self.sr_in = nest.Create("spike_recorder", params_sr_in)
+            # leaving here for now bc only benchmarking off spikes
+            self.mm_rec = nest.Create("multimeter", params_mm_rec)
 
-        self.mm_rec = nest.Create("multimeter", params_mm_rec)
-        self.mm_out = nest.Create("multimeter", params_mm_out)
-        self.sr_in = nest.Create("spike_recorder", params_sr_in)
-        self.sr_rec = nest.Create("spike_recorder", params_sr_rec)
         self.wr = nest.Create("weight_recorder", params_wr)
 
+        self.mm_out = nest.Create("multimeter", params_mm_out)
+        self.sr_rec = nest.Create("spike_recorder", params_sr_rec)
         self.nrns_rec_record = self.nrns_rec[:self.n_record]
 
         return
@@ -326,7 +332,6 @@ class eprop_model(Trainer):
         senders_in_rec, targets_in_rec = get_weight_recorder_senders_targets(weights_in_rec, self.nrns_in, self.nrns_rec)
         senders_rec_rec, targets_rec_rec = get_weight_recorder_senders_targets(weights_rec_rec, self.nrns_rec, self.nrns_rec)
         senders_rec_out, targets_rec_out = get_weight_recorder_senders_targets(weights_rec_out, self.nrns_rec, self.nrns_out)
-
         self.wr.set(
             senders=np.unique(np.concatenate([senders_in_rec, senders_rec_rec, senders_rec_out])),
             targets=np.unique(np.concatenate([targets_in_rec, targets_rec_rec, targets_rec_out])),
@@ -341,8 +346,9 @@ class eprop_model(Trainer):
                 "Wmin": -100.0,  # pA, minimal limit of the synaptic weights
                 "Wmax": 100.0,  # pA, maximal limit of the synaptic weights
             },
-            "weight_recorder": self.wr,
         }
+
+        self.params_common_syn_eprop["weight_recorder"] = self.wr
 
         self.eta_test = eta_test  # learning rate for test phase
         self.eta_train = eta_train * self.scale_factor**2  # learning rate for training phase
@@ -398,10 +404,12 @@ class eprop_model(Trainer):
         nest.Connect(self.gen_rate_target, self.nrns_out, params_conn_one_to_one, params_syn_rate_target)  # connection 6
         nest.Connect(self.gen_learning_window, self.nrns_out, params_conn_all_to_all, params_syn_learning_window)  # connection 7
 
-        nest.Connect(self.nrns_in, self.sr_in, params_conn_all_to_all, params_syn_static)
+        if self.profiling == 'full':
+            nest.Connect(self.nrns_in, self.sr_in, params_conn_all_to_all, params_syn_static)
+            nest.Connect(self.mm_rec, self.nrns_rec_record, params_conn_all_to_all, params_syn_static)
+        
         nest.Connect(self.nrns_rec, self.sr_rec, params_conn_all_to_all, params_syn_static)
 
-        nest.Connect(self.mm_rec, self.nrns_rec_record, params_conn_all_to_all, params_syn_static)
         nest.Connect(self.mm_out, self.nrns_out, params_conn_all_to_all, params_syn_static)
 
         self.gen_spk_final_update = nest.Create("spike_generator", 1)
