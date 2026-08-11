@@ -49,13 +49,13 @@ def LIF_objective(trial):
 def run_optimization(_):
     study = optuna.create_study(
         study_name="journal_storage_multiprocess",
-        storage=JournalStorage(JournalFileBackend(file_path="./journal.log")),
+        storage=JournalStorage(JournalFileBackend(file_path="./data/hyperparameters/journal.log")),
         load_if_exists=True, # Useful for multi-process or multi-node optimization.
     )
-    study.optimize(objective, n_trials=3)
+    study.optimize(LIF_objective, n_trials=30)
 
-LIF_study = optuna.create_study(directions=['minimize','maximize'],sampler=optuna.samplers.GridSampler())
-LIF_study.optimize(LIF_objective,n_trials=30)
+#LIF_study = optuna.create_study(directions=['minimize','maximize'],sampler=optuna.samplers.TPESampler())
+#LIF_study.optimize(LIF_objective,n_trials=30)
 
 if __name__ == "__main__":
     with Pool(processes=4) as pool:

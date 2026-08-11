@@ -112,7 +112,6 @@ class Trainer:
         self.group_size = group_size
         self.batch_loader = batch_loader
         self.batch_loader.group_size = group_size
-
         while self.k_iter < n_iter_train:
             #self.run_validation()
             #self.run_early_stopping()
@@ -148,18 +147,20 @@ class Trainer:
 
 class eprop_model(Trainer):
 
-    def __init__(self):
+    def __init__(self,num_threads,num_virtual_procs):
         Trainer.__init__(self)
         self.verbose = True
         self.in_shape = 0
         self.out_shape = 0
         self.rec_shape = 0
+        self.params_setup = { "total_num_virtual_procs": num_virtual_procs}
         nest.ResetKernel()
         nest.verbosity = nest.VerbosityLevel.FATAL
+        nest.local_num_threads = num_threads
 
     
     def timing(self,resolution,delay,params):
-        self.params_setup = {"resolution": resolution}
+        self.params_setup.update({"resolution": resolution})
         nest.set(**self.params_setup)
         params.update({
             "offset_gen": 1,
@@ -190,6 +191,7 @@ class eprop_model(Trainer):
 
     def recurrent_layer(self,n_rec,params,adaptive=False):
         self.rec_shape = n_rec
+        self.adaptive = adaptive
         if adaptive:
             model = 'eprop_iaf_adapt'
         else:
@@ -252,6 +254,9 @@ class eprop_model(Trainer):
             "label": "multimeter_rec",
         }
 
+        if self.adaptive:
+            params_mm_rec['record_from'].extend(["V_th_adapt"])
+
         params_wr = {
             "senders": self.nrns_in[:self.n_record_w] + self.nrns_rec[:self.n_record_w],  # limit senders to subsample weights to record
             "targets": self.nrns_rec[:self.n_record_w] + self.nrns_out,  # limit targets to subsample weights to record from
@@ -285,6 +290,7 @@ class eprop_model(Trainer):
             self.sr_in = nest.Create("spike_recorder", params_sr_in)
             # leaving here for now bc only benchmarking off spikes
             self.mm_rec = nest.Create("multimeter", params_mm_rec)
+
 
         self.wr = nest.Create("weight_recorder", params_wr)
 

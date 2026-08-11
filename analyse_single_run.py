@@ -2,7 +2,6 @@
 
 import numpy as np
 import setup_api, dataset_api
-import cnsplots as cns
 
 #%%
 
@@ -42,26 +41,26 @@ params_nrn_rec = {
     "surrogate_gradient_height": 0.5,  # height scaling of the pseudo-derivative
     "surrogate_gradient_width": 1.0 / 1.7,  # width scaling of the pseudo-derivative
 
-    "adapt_beta": 1.0,
-    "adapt_tau": 10,
+    #"adapt_beta": 1.0,
+    #"adapt_tau": 10,
 
     "f_target": 10, # Hz
 
 }
 
 
-#%%
+#%% work
 
 data_loader.setup_MNIST(activity_threshold=0.02,val_split=0.1) # manually delete pixel_activations.csv to reinitialise
-model = setup_api.eprop_model()
+model = setup_api.eprop_model(num_threads=1,num_virtual_procs=5)
 model.timing(1.0,1,steps)
 model.input_layer(n_in)
 model.recurrent_layer(150,params_nrn_rec,adaptive=True)
 model.output_layer(n_out,params_nrn_out)
-model.recorders(profiling='full',save_to_disk=False)
+model.recorders(profiling='sparse',save_to_disk=False)
 model.connect(sparsity=[0.8,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
 weights_pre_train = model.compile()
-model.fit(data_loader,n_iter_train=20,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+model.fit(data_loader,n_iter_train=200,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
 results = model.get_results()
 
@@ -127,8 +126,11 @@ def averages_std_over_time(input, window_size):
     ma[tail:-tail] = np.convolve(input,np.ones(window_size)/window_size,mode='valid')
     return ma
 
-fig, axs = plt.subplots(2, 1, sharex=True)
-fig.suptitle("Learning performance")
+fig, axs = plt.subplots(3, 1, sharex=True)
+if model.adaptive:
+    fig.suptitle("Adaptive LIF model performance")
+else:
+    fig.suptitle("LIF model performance")
 
 axs[1].axhline(0.95,linestyle='--',linewidth=0.5,color='k',label=r'target')
 
@@ -137,8 +139,8 @@ acc_ma = averages_std_over_time(1-results["error"][:-2],3)
 #axs[0].plot(results["iteration"][:-2], loss_ma, label='training')
 #axs[1].plot(results["iteration"][:-2], acc_ma, label='training')
 
-axs[0].plot(results["iteration"], results["loss"], label='training')
-axs[1].plot(results["iteration"], 1-results["error"], label='training')
+axs[0].plot(results["iteration"][:-1], results["loss"][:-1], label='training')
+axs[1].plot(results["iteration"][:-1], 1-results["error"][:-1], label='training')
 '''
 for color, label in zip(colors, set(results_dict["label"])):
     idc = results_dict["label"] == label
@@ -146,11 +148,21 @@ for color, label in zip(colors, set(results_dict["label"])):
     axs[1].scatter(results_dict["iteration"][idc], 1-results_dict["error"][idc], label=label)
 '''
 
-axs[0].scatter(results["iteration"][-2],np.mean(results["loss"][-2:]),label='test')
-axs[1].scatter(results["iteration"][-2],np.mean(1-results["error"][-2:]),label='test')
+axs[0].scatter(results["iteration"][-1],np.mean(results["loss"][-1:]),label='test')
+axs[1].scatter(results["iteration"][-1],np.mean(1-results["error"][-1:]),label='test')
 
 axs[0].set_ylabel(r"$\mathcal{L} = \frac{1}{2} \sum_{t,k} \left( y_k^t -y_k^{*,t}\right)^2$")
 axs[1].set_ylabel("accuracy")
+
+
+print(results['spikes'])
+spikes = np.zeros(len(results['spikes']))
+print(spikes.shape)
+for i in range(len(results['spikes'])-1):
+    spikes[i+1] = results['spikes'][i+1] - np.sum(results['spikes'][i])
+spikes = spikes / model.group_size
+axs[2].plot(results["iteration"],spikes)
+axs[2].set_ylabel("spikes")
 
 axs[-1].set_xlabel("epoch")
 axs[-1].legend(bbox_to_anchor=(1.05, 0.5), loc="center left")
@@ -163,7 +175,7 @@ fig.savefig(f"{plots_dir}{timestamp}/learning_over_time.eps")
 #%% spiking variables
 
 chosen = model.nrns_rec_record.get("global_id")
-print(chosen)
+
 def plot_recordable(ax, events, recordable, ylabel, xlims):
     for sender in np.unique(events["senders"]):
         idc_sender = events["senders"] == sender
@@ -188,12 +200,13 @@ def plot_spikes(ax, events, ylabel, xlims):
     #chosen_senders = events["senders"][chosen_spikes]
     #chosen_times = events["times"][chosen_spikes]
 
-    ax.scatter(times_subset, senders_subset, s=0.1)
-    ax.scatter(chosen_times, chosen_r, s=0.1, c = 'r')
+    ax.scatter(times_subset, senders_subset, s=0.1, c = '#ADC6FF')
+    ax.scatter(chosen_times, chosen_r, s=2, c = 'r')
     ax.set_ylabel(ylabel)
     margin = np.abs(np.max(senders_subset) - np.min(senders_subset)) * 0.1
-    #ax.set_ylim(np.min(senders_subset) - margin, np.max(senders_subset) + margin)
-    ax.set_ylim(2688, 2692)
+    ax.set_ylim(np.min(senders_subset) - margin, np.max(senders_subset) + margin)
+    ax.set_yticks([])
+    ax.set_yticklabels([])
 
 
 for title, xlims, savename in zip(
@@ -210,7 +223,8 @@ for title, xlims, savename in zip(
     plot_spikes(axs[1], events_sr_rec, r"$z_j$" + "\n", xlims)
 
     plot_recordable(axs[2], events_mm_rec, "V_m", r"$v_j$" + "\n(mV)", xlims)
-    axs[2].axhline(0.6,linestyle='--',linewidth=0.5)
+    #axs[2].axhline(0.6,linestyle='--',linewidth=0.5)
+    plot_recordable(axs[2], events_mm_rec, "V_th_adapt", r"$v_j$" + "\n(mV)", xlims)
     plot_recordable(axs[3], events_mm_rec, "surrogate_gradient", r"$\psi_j$" + "\n", xlims)
     plot_recordable(axs[4], events_mm_rec, "learning_signal", r"$L_j$" + "\n(pA)", xlims)
 
