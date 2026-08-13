@@ -17,7 +17,7 @@ steps = {
     "sequence": 300,  # time steps of one full sequence
     "learning_window": 10,  # time steps of window with non-zero learning signals
 }
-
+'''
 # neuron parameters
 eprop_isi_trace_cutoff = 100 # after this many steps after a spike, stops computing eligibility trace
 params_nrn_out = {
@@ -46,23 +46,52 @@ params_nrn_rec = {
 
     "f_target": 10, # Hz
 
+}'''
+
+eprop_isi_trace_cutoff = 100 # after this many steps after a spike, stops computing eligibility trace
+params_nrn_out = {
+    "tau_m": 92.74,
+    "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
+    "V_m": 0.,
+    "E_L": 0.
+}
+
+params_nrn_rec = {
+    "tau_m": 63.45,
+    "c_reg": 2.579,
+    "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
+    "E_L": 0.,
+    "V_m": 0.,
+    "V_th": 0.3680,
+    "t_ref": 17.404,
+    "kappa": 0.8139,
+    "kappa_reg": 0.9727,
+    "surrogate_gradient_function": "piecewise_linear",  # surrogate gradient / pseudo-derivative function
+    "surrogate_gradient_height": 0.5,  # height scaling of the pseudo-derivative
+    "surrogate_gradient_width": 1.0 / 1.7,  # width scaling of the pseudo-derivative
+
+    "adapt_beta": 0.7,
+    "adapt_tau": 43.24,
+
+    "f_target": 1.6, # Hz
+
 }
 
 
 #%% work
 
 data_loader.setup_MNIST(activity_threshold=0.02,val_split=0.1) # manually delete pixel_activations.csv to reinitialise
-model = setup_api.eprop_model(num_threads=1,num_virtual_procs=6)
+model = setup_api.eprop_model(num_threads=1,num_virtual_procs=4)
 model.timing(1.0,1,steps)
 model.input_layer(n_in)
-model.recurrent_layer(150,params_nrn_rec,adaptive=False)
+model.recurrent_layer(125,params_nrn_rec,adaptive=True)
 model.output_layer(n_out,params_nrn_out)
 model.recorders(profiling='full',save_to_disk=False)
-model.connect(sparsity=[0.9,0.99,0],eta_train=5e-3,optimizer='adam')
+model.connect(sparsity=[0.9,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
 weights_pre_train = model.compile()
-model.fit(data_loader,n_iter_train=2,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+model.fit(data_loader,n_iter_train=200,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
-results = model.get_results()
+results, events = model.get_results()
 
 accuracy = 1-results['error']
 spikes = results['spikes']
@@ -79,11 +108,11 @@ timestamps = os.listdir(data_dir)
 print(timestamps)
 timestamp = timestamps[0]
 
-events_mm_rec = model.mm_rec.get("events")
-events_mm_out = model.mm_out.get("events")
-events_sr_in = model.sr_in.get("events")
-events_sr_rec = model.sr_rec.get("events")
-events_wr = model.wr.get("events")
+events_mm_rec = events['mm_rec']
+events_mm_out = events['mm_out']
+events_sr_in = events['sr_in']
+events_sr_rec = events['sr_rec']
+events_wr = events['wr']
 weights_before = weights_pre_train
 weights_after = {
                 "in_rec": model.get_weights(model.nrns_in, model.nrns_rec),
@@ -91,6 +120,10 @@ weights_after = {
                 "rec_out": model.get_weights(model.nrns_rec, model.nrns_out),
             }
 weights_post_train = weights_after
+
+#%%
+
+print(events_sr_rec)
 
 #%% Visualisation
 from cycler import cycler
@@ -132,7 +165,7 @@ if model.adaptive:
 else:
     fig.suptitle("LIF model performance")
 
-axs[1].axhline(0.95,linestyle='--',linewidth=0.5,color='k',label=r'target')
+axs[1].axhline(0.9,linestyle='--',linewidth=0.5,color='k',label=r'target')
 
 loss_ma = averages_std_over_time(results["loss"][:-2],3)
 acc_ma = averages_std_over_time(1-results["error"][:-2],3)
@@ -152,17 +185,15 @@ axs[0].scatter(results["iteration"][-1],np.mean(results["loss"][-1:]),label='tes
 axs[1].scatter(results["iteration"][-1],np.mean(1-results["error"][-1:]),label='test')
 
 axs[0].set_ylabel(r"$\mathcal{L} = \frac{1}{2} \sum_{t,k} \left( y_k^t -y_k^{*,t}\right)^2$")
-axs[1].set_ylabel("accuracy")
+axs[1].set_ylabel(r"Classifier accuracy")
 
-
-print(results['spikes'])
 spikes = np.zeros(len(results['spikes']))
-print(spikes.shape)
+
 for i in range(len(results['spikes'])-1):
-    spikes[i+1] = results['spikes'][i+1] - np.sum(results['spikes'][i])
-spikes = spikes / model.group_size
+    spikes[i+1] = results['spikes'][i+1]
+spikes = spikes
 axs[2].plot(results["iteration"],spikes)
-axs[2].set_ylabel("spikes")
+axs[2].set_ylabel("spikes per inference")
 
 axs[-1].set_xlabel("epoch")
 axs[-1].legend(bbox_to_anchor=(1.05, 0.5), loc="center left")
@@ -184,7 +215,6 @@ def plot_recordable(ax, events, recordable, ylabel, xlims):
     ax.set_ylabel(ylabel)
     margin = np.abs(np.max(events[recordable][idc_sender][idc_times]) - np.min(events[recordable][idc_sender][idc_times])) * 0.1
     ax.set_ylim(np.min(events[recordable][idc_sender][idc_times]) - margin, np.max(events[recordable][idc_sender][idc_times]) + margin)
-
 
 def plot_spikes(ax, events, ylabel, xlims):
     idc_times = (events["times"] > xlims[0]) & (events["times"] < xlims[1])
@@ -213,32 +243,33 @@ for title, xlims, savename in zip(
     ["Dynamic variables before training", "Dynamic variables after training"],
     [
         (0, model.steps["sequence"]),
-        (((model.n_iter_sim - 0) * model.group_size - 1)* model.steps["sequence"], model.n_iter_sim * model.group_size * model.steps["sequence"]),
+        (((model.n_iter_sim - 1) * model.group_size - 0)* model.steps["sequence"], model.n_iter_sim * model.group_size * model.steps["sequence"]),
     ],["before","after"]
 ):
-    fig, axs = plt.subplots(9, 1, sharex=True, figsize=(8, 14), gridspec_kw={"hspace": 0.4, "left": 0.2})
-    fig.suptitle(title)
+    
+        fig, axs = plt.subplots(9, 1, sharex=True, figsize=(8, 14), gridspec_kw={"hspace": 0.4, "left": 0.2})
+        fig.suptitle(title)
 
-    plot_spikes(axs[0], events_sr_in, r"$z_i$" + "\n", xlims)
-    plot_spikes(axs[1], events_sr_rec, r"$z_j$" + "\n", xlims)
+        plot_spikes(axs[0], events_sr_in, r"$z_i$" + "\n", xlims)
+        plot_spikes(axs[1], events_sr_rec, r"$z_j$" + "\n", xlims)
 
-    plot_recordable(axs[2], events_mm_rec, "V_m", r"$v_j$" + "\n(mV)", xlims)
-    #axs[2].axhline(0.6,linestyle='--',linewidth=0.5)
-    plot_recordable(axs[2], events_mm_rec, "V_th_adapt", r"$v_j$" + "\n(mV)", xlims)
-    plot_recordable(axs[3], events_mm_rec, "surrogate_gradient", r"$\psi_j$" + "\n", xlims)
-    plot_recordable(axs[4], events_mm_rec, "learning_signal", r"$L_j$" + "\n(pA)", xlims)
+        plot_recordable(axs[2], events_mm_rec, "V_m", r"$v_j$" + "\n(mV)", xlims)
+        plot_recordable(axs[2], events_mm_rec, "V_th_adapt", r"$v_j$" + "\n(mV)", xlims)
+        axs[2].set_ylim(-7,1)
+        plot_recordable(axs[3], events_mm_rec, "surrogate_gradient", r"$\psi_j$" + "\n", xlims)
+        plot_recordable(axs[4], events_mm_rec, "learning_signal", r"$L_j$" + "\n(pA)", xlims)
 
-    plot_recordable(axs[5], events_mm_out, "V_m", r"$v_k$" + "\n(mV)", xlims)
-    plot_recordable(axs[6], events_mm_out, "target_signal", r"$y^*_k$" + "\n", xlims)
-    plot_recordable(axs[7], events_mm_out, "readout_signal", r"$y_k$" + "\n", xlims)
-    plot_recordable(axs[8], events_mm_out, "error_signal", r"$y_k-y^*_k$" + "\n", xlims)
+        plot_recordable(axs[5], events_mm_out, "V_m", r"$v_k$" + "\n(mV)", xlims)
+        plot_recordable(axs[6], events_mm_out, "target_signal", r"$y^*_k$" + "\n", xlims)
+        plot_recordable(axs[7], events_mm_out, "readout_signal", r"$y_k$" + "\n", xlims)
+        plot_recordable(axs[8], events_mm_out, "error_signal", r"$y_k-y^*_k$" + "\n", xlims)
 
-    axs[-1].set_xlabel(r"$t$ (ms)")
-    axs[-1].set_xlim(*xlims)
+        axs[-1].set_xlabel(r"$t$ (ms)")
+        axs[-1].set_xlim(*xlims)
 
-    fig.align_ylabels()
+        fig.align_ylabels()
 
-    fig.savefig(f"{plots_dir}{timestamp}/recorders_{savename}.eps")
+        #fig.savefig(f"{plots_dir}{timestamp}/recorders_{savename}.eps")
 #%% weight evolution
 
 def plot_weight_time_course(ax, events, nrns, label, ylabel):

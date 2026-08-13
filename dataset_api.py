@@ -73,6 +73,35 @@ class MNIST_loader:
 
         return self.n_in, num_classes
 
+    '''def base_loader(self,dataset,index_list,current_index):
+        end_index = current_index + self.group_size
+        
+        selected_indices = np.take(index_list, range(current_index, end_index), mode="wrap")
+
+        current_index = (current_index + self.group_size) % len(index_list)
+
+        spikes = [[] for _ in selected_indices]
+        labels = []
+        for item, idx in enumerate(selected_indices):
+            data, label = dataset[idx]
+            labels.extend([label])
+            
+            for px in range(self.n_in):
+                mask = np.isin(data[['x','y','p']],self.active_pixels[px])
+                relative_times = data[mask]["t"]
+                spikes[item].extend([relative_times])
+        
+        return spikes,labels
+
+    def training_loader(self):
+        return self.base_loader(self.train_dataset,self.train_idx,self.current_train_idx)
+
+    def validation_loader(self):
+        return self.base_loader(self.train_dataset,self.val_idx,self.current_val_idx)
+
+    def test_loader(self):
+        return self.base_loader(self.test_dataset,self.test_idx,self.current_test_idx)'''
+
     def training_loader(self):
         end_index = self.current_train_idx + self.group_size
 

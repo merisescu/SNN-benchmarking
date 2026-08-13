@@ -17,6 +17,7 @@ class Trainer:
             "iteration": [],
             "label": [],
         }
+        self.events = {}
         self.n_iter_sim = 0
         self.phase_label_previous = ""
         self.error = 0
@@ -66,10 +67,9 @@ class Trainer:
 
             self.error = errors[0]
 
-    def run_phase(self,phase_label,eta,loader):
+            nest.SetStatus(self.recorders, {"n_events": 0})
 
-        #if not self.save_to_disk:
-                    #nest.SetStatus(self.recorders, {"n_events": 0})
+    def run_phase(self,phase_label,eta,loader):
         
         self.params_common_syn_eprop["optimizer"]["eta"] = eta
         nest.SetDefaults("eprop_synapse", self.params_common_syn_eprop)
@@ -81,7 +81,9 @@ class Trainer:
 
         self.simulate("total_offset")
         self.simulate("extension_sim")
-                
+
+        if self.n_iter_sim == 1:
+            self.get_events()
         if self.n_iter_sim > 0 and self.profiling=="full":
             start = time.perf_counter()
             self.evaluate()
@@ -119,7 +121,8 @@ class Trainer:
         self.group_size = group_size
         self.batch_loader = batch_loader
         self.batch_loader.group_size = group_size
-        while self.k_iter < n_iter_train:
+        self.n_iter_train = n_iter_train
+        while self.k_iter < self.n_iter_train:
             #self.run_validation()
             #self.run_early_stopping()
             self.run_training()
@@ -131,6 +134,7 @@ class Trainer:
         self.simulate("total_offset")
         self.simulate("extension_sim")
 
+        self.get_events()
         self.evaluate()
 
         self.duration["task"] = self.n_iter_sim * self.group_size * self.duration["sequence"] + self.duration["total_offset"]
@@ -140,14 +144,27 @@ class Trainer:
         self.simulate("final_update")
         return
         
-
     def simulate(self, k):
             nest.Simulate(self.duration[k])
+
+    def get_events(self):
+        def add_events(recorder_key, recorder):
+            events = recorder.get('events')
+            for k, v in events.items():
+                self.events.setdefault(recorder_key, {}).setdefault(k, np.array([],dtype=v.dtype))
+                self.events[recorder_key][k] = np.concatenate([self.events[recorder_key][k], np.asarray(v)])
+        add_events("sr_in", self.sr_in)
+        add_events("sr_rec", self.sr_rec)
+        add_events("mm_rec", self.mm_rec)
+        add_events("mm_out", self.mm_out)
+        add_events("wr", self.wr)
+
+        print('got events')
 
     def get_results(self):
             for k, v in self.results_dict.items():
                 self.results_dict[k] = np.array(v)
-            return self.results_dict
+            return self.results_dict, self.events
 
 
 #%%
@@ -228,21 +245,7 @@ class eprop_model(Trainer):
             })
         else:
             self.backend = 'memory'
-        if profiling=='sparse':
-            # do not record weights
-            # do not record spike times, only spike number
-            # if using this, individual neuron spiking patterns cannot be observed
-            start = self.duration['total_offset']
-        elif profiling=='before_after':
-            # same as sparse but fully record one epoch before and after
-            # allows computationally efficient spike counting during training
-            # while only giving in depth analysis of the first and last epochs
-            start = self.duration['total_offset']
-        elif profiling=='full':
-            # enable all recorders at full resolution for all time steps
-            # only ever use this to record single model training
-            # output results can be many GB
-            start = self.duration['total_offset']
+        start = self.duration['total_offset']
         params_mm_out = {
             "interval": self.duration["step"],
             "record_to": self.backend,
@@ -286,11 +289,8 @@ class eprop_model(Trainer):
             #params_sr_in['record_to'] = ""
             #params_sr_rec['record_to'] = ""
             params_mm_out['record_from'] = ["readout_signal", "target_signal"]
-        elif profiling=='before_after':
-            # same as sparse but fully record one epoch before and after
-            # not implemented yet (will do if theres something more I need 
-            # than just the sparse recording for large simulation counts)
-            start = self.duration['total_offset']
+            self.sr_in = nest.Create("spike_recorder", params_sr_in)
+            self.mm_rec = nest.Create("multimeter", params_mm_rec)
         elif profiling=='full':
             self.sr_in = nest.Create("spike_recorder", params_sr_in)
             # leaving here for now bc only benchmarking off spikes
@@ -415,7 +415,7 @@ class eprop_model(Trainer):
         nest.Connect(self.gen_rate_target, self.nrns_out, params_conn_one_to_one, params_syn_rate_target)  # connection 6
         nest.Connect(self.gen_learning_window, self.nrns_out, params_conn_all_to_all, params_syn_learning_window)  # connection 7
 
-        if self.profiling == 'full':
+        if self.profiling == 'full' or self.profiling == 'sparse':
             nest.Connect(self.nrns_in, self.sr_in, params_conn_all_to_all, params_syn_static)
             nest.Connect(self.nrns_rec, self.sr_rec, params_conn_all_to_all, params_syn_static)
             nest.Connect(self.mm_rec, self.nrns_rec_record, params_conn_all_to_all, params_syn_static)
