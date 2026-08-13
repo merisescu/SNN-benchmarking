@@ -52,15 +52,15 @@ params_nrn_rec = {
 #%% work
 
 data_loader.setup_MNIST(activity_threshold=0.02,val_split=0.1) # manually delete pixel_activations.csv to reinitialise
-model = setup_api.eprop_model(num_threads=1,num_virtual_procs=5)
+model = setup_api.eprop_model(num_threads=1,num_virtual_procs=6)
 model.timing(1.0,1,steps)
 model.input_layer(n_in)
-model.recurrent_layer(150,params_nrn_rec,adaptive=True)
+model.recurrent_layer(150,params_nrn_rec,adaptive=False)
 model.output_layer(n_out,params_nrn_out)
-model.recorders(profiling='sparse',save_to_disk=False)
-model.connect(sparsity=[0.8,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
+model.recorders(profiling='full',save_to_disk=False)
+model.connect(sparsity=[0.9,0.99,0],eta_train=5e-3,optimizer='adam')
 weights_pre_train = model.compile()
-model.fit(data_loader,n_iter_train=200,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+model.fit(data_loader,n_iter_train=2,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
 results = model.get_results()
 

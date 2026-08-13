@@ -67,9 +67,10 @@ class Trainer:
             self.error = errors[0]
 
     def run_phase(self,phase_label,eta,loader):
-        if not self.save_to_disk:
-            nest.SetStatus(self.recorders, {"n_events": 0})
 
+        #if not self.save_to_disk:
+                    #nest.SetStatus(self.recorders, {"n_events": 0})
+        
         self.params_common_syn_eprop["optimizer"]["eta"] = eta
         nest.SetDefaults("eprop_synapse", self.params_common_syn_eprop)
 
@@ -80,13 +81,13 @@ class Trainer:
 
         self.simulate("total_offset")
         self.simulate("extension_sim")
-
+                
         if self.n_iter_sim > 0 and self.profiling=="full":
             start = time.perf_counter()
             self.evaluate()
             stop = time.perf_counter()
             print("evaluation time: ", stop-start)
-
+        
         self.duration["sim"] = self.group_size * self.duration["sequence"] - self.duration["total_offset"] - self.duration["extension_sim"]
         start = time.perf_counter()
         self.simulate("sim")
@@ -94,6 +95,11 @@ class Trainer:
         print("simulation time: ", stop-start)
         self.n_iter_sim += 1
         self.phase_label_previous = phase_label
+
+        # this extra simulation shouldnt be needed
+        #self.simulate("total_offset")
+        #self.simulate("extension_sim")
+
         return
 
     def run_training(self):
@@ -411,11 +417,12 @@ class eprop_model(Trainer):
 
         if self.profiling == 'full':
             nest.Connect(self.nrns_in, self.sr_in, params_conn_all_to_all, params_syn_static)
+            nest.Connect(self.nrns_rec, self.sr_rec, params_conn_all_to_all, params_syn_static)
             nest.Connect(self.mm_rec, self.nrns_rec_record, params_conn_all_to_all, params_syn_static)
-        
-        nest.Connect(self.nrns_rec, self.sr_rec, params_conn_all_to_all, params_syn_static)
-
-        nest.Connect(self.mm_out, self.nrns_out, params_conn_all_to_all, params_syn_static)
+            nest.Connect(self.mm_out, self.nrns_out, params_conn_all_to_all, params_syn_static)
+        else:
+            nest.Connect(self.nrns_rec, self.sr_rec, params_conn_all_to_all, params_syn_static)
+            nest.Connect(self.mm_out, self.nrns_out, params_conn_all_to_all, params_syn_static)
 
         self.gen_spk_final_update = nest.Create("spike_generator", 1)
         nest.Connect(self.gen_spk_final_update, self.nrns_in + self.nrns_rec, "all_to_all", {"weight": 1000.0})
