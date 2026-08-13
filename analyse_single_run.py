@@ -230,7 +230,7 @@ def plot_spikes(ax, events, ylabel, xlims):
     #chosen_senders = events["senders"][chosen_spikes]
     #chosen_times = events["times"][chosen_spikes]
 
-    ax.scatter(times_subset, senders_subset, s=0.1, c = '#ADC6FF')
+    ax.scatter(times_subset, senders_subset, s=1)
     ax.scatter(chosen_times, chosen_r, s=2, c = 'r')
     ax.set_ylabel(ylabel)
     margin = np.abs(np.max(senders_subset) - np.min(senders_subset)) * 0.1
@@ -243,7 +243,7 @@ for title, xlims, savename in zip(
     ["Dynamic variables before training", "Dynamic variables after training"],
     [
         (0, model.steps["sequence"]),
-        (((model.n_iter_sim - 1) * model.group_size - 0)* model.steps["sequence"], model.n_iter_sim * model.group_size * model.steps["sequence"]),
+        (((model.n_iter_sim - 0) * model.group_size - 1)* model.steps["sequence"], model.n_iter_sim * model.group_size * model.steps["sequence"]),
     ],["before","after"]
 ):
     
@@ -255,7 +255,7 @@ for title, xlims, savename in zip(
 
         plot_recordable(axs[2], events_mm_rec, "V_m", r"$v_j$" + "\n(mV)", xlims)
         plot_recordable(axs[2], events_mm_rec, "V_th_adapt", r"$v_j$" + "\n(mV)", xlims)
-        axs[2].set_ylim(-7,1)
+        axs[2].set_ylim(0,1)
         plot_recordable(axs[3], events_mm_rec, "surrogate_gradient", r"$\psi_j$" + "\n", xlims)
         plot_recordable(axs[4], events_mm_rec, "learning_signal", r"$L_j$" + "\n(pA)", xlims)
 
