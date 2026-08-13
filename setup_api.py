@@ -54,7 +54,7 @@ class Trainer:
             accuracy = np.mean((y_target == y_prediction), axis=1)
             errors = 1.0 - accuracy
 
-            spikes = [self.sr_rec.n_events]
+            spikes = [self.sr_rec.n_events/self.group_size]
             # does not count spikes from the spike generator, this can be found either from self.sr_in.n_events
             # or take it from the data loader
 
@@ -65,10 +65,11 @@ class Trainer:
             self.results_dict["label"].append(self.phase_label_previous)
 
             self.error = errors[0]
-            if self.profiling != "full":
-                nest.SetStatus(self.recorders, {"n_events": 0})
 
     def run_phase(self,phase_label,eta,loader):
+        if not self.save_to_disk:
+            nest.SetStatus(self.recorders, {"n_events": 0})
+
         self.params_common_syn_eprop["optimizer"]["eta"] = eta
         nest.SetDefaults("eprop_synapse", self.params_common_syn_eprop)
 
@@ -99,7 +100,7 @@ class Trainer:
         self.run_phase("training",self.eta_train,self.batch_loader.training_loader)
 
     def run_validation(self):
-        return
+        self.run_phase("validation",0,self.batch_loader.validation_loader)
 
     def run_early_stopping(self):
         return
@@ -119,7 +120,7 @@ class Trainer:
             self.k_iter += 1
             print('epoch: ', self.k_iter)
 
-        self.run_test()
+        self.run_validation()
 
         self.simulate("total_offset")
         self.simulate("extension_sim")
@@ -221,8 +222,6 @@ class eprop_model(Trainer):
             })
         else:
             self.backend = 'memory'
-        # TODO: implement SIONlib and other optimisations (reduce/eliminate calls to evaluate during runtime) to reduce memory, runtime
-        # only record during final epoch (not compatible with early stopping)
         if profiling=='sparse':
             # do not record weights
             # do not record spike times, only spike number
@@ -349,8 +348,8 @@ class eprop_model(Trainer):
                 "batch_size": 1, # probably leave this at 1, this just witholds updates, doesnt actually parallelise anything
                 "optimize_each_step": False,  # call optimizer every time step (True) or once per spike (False); both
                 # yield same results for gradient descent, False offers speed-up
-                "Wmin": -100.0,  # pA, minimal limit of the synaptic weights
-                "Wmax": 100.0,  # pA, maximal limit of the synaptic weights
+                "Wmin": -10000.0,  # pA, minimal limit of the synaptic weights
+                "Wmax": 10000.0,  # pA, maximal limit of the synaptic weights
             },
         }
 

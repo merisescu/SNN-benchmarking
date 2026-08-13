@@ -91,10 +91,29 @@ class MNIST_loader:
                 mask = np.isin(data[['x','y','p']],self.active_pixels[px])
                 relative_times = data[mask]["t"]
                 spikes[item].extend([relative_times])
+
         return spikes,labels
 
     def validation_loader(self):
-        return
+        end_index = self.current_val_idx + self.group_size
+        
+        selected_indices = np.take(self.val_idx, range(self.current_val_idx, end_index), mode="wrap")
+
+        self.current_val_idx = (self.current_val_idx + self.group_size) % len(self.val_idx)
+
+        spikes = [[] for _ in selected_indices]
+        labels = []
+        for item, idx in enumerate(selected_indices):
+            
+            data, label = self.train_dataset[idx]
+            labels.extend([label])
+            
+            for px in range(self.n_in):
+                mask = np.isin(data[['x','y','p']],self.active_pixels[px])
+                relative_times = data[mask]["t"]
+                spikes[item].extend([relative_times])
+
+        return spikes,labels
 
     def test_loader(self):
         end_index = self.current_test_idx + self.group_size
@@ -106,7 +125,6 @@ class MNIST_loader:
         spikes = [[] for _ in selected_indices]
         labels = []
         for item, idx in enumerate(selected_indices):
-            
 
             data, label = self.test_dataset[idx]
             labels.extend([label])
@@ -115,6 +133,7 @@ class MNIST_loader:
                 mask = np.isin(data[['x','y','p']],self.active_pixels[px])
                 relative_times = data[mask]["t"]
                 spikes[item].extend([relative_times])
+
         return spikes,labels
 
 #%% Spiking speech commands
