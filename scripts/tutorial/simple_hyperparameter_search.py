@@ -1,15 +1,14 @@
 #%% import
 import optuna
 import os
-import numpy as np
 
-import setup_api
-import dataset_api
+import scripts.api.setup as setup
+import scripts.api.dataset as dataset
 
 #%% NMNIST hyperparameter search
 
 # load MNIST batch loader and initialise dataset
-data_loader = dataset_api.MNIST_loader()
+data_loader = dataset.MNIST_loader()
 n_in, n_out = data_loader.setup_MNIST()
 #%%
 # using standard LIF
@@ -52,7 +51,7 @@ def LIF_objective(trial):
     }
 
     data_loader.setup_MNIST(activity_threshold=0.02,val_split=0.1) # manually delete pixel_activations.csv to reinitialise
-    model = setup_api.eprop_model(num_threads=1,num_virtual_procs=4)
+    model = setup.eprop_model(num_threads=1,num_virtual_procs=4)
     model.timing(1.0,1,steps)
     model.input_layer(n_in)
     model.recurrent_layer(trial.suggest_int('reccurent_neurons',50,200,step=25),params_nrn_rec,adaptive=False)

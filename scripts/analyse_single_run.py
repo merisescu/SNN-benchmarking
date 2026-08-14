@@ -1,12 +1,13 @@
 #%% imports
 
 import numpy as np
-import setup_api, dataset_api
+import scripts.api.setup as setup
+import scripts.api.dataset as  dataset
 
 #%%
 
 # load MNIST batch loader and initialise dataset
-data_loader = dataset_api.MNIST_loader()
+data_loader = dataset.MNIST_loader()
 n_in, n_out = data_loader.setup_MNIST()
 
 
@@ -81,7 +82,7 @@ params_nrn_rec = {
 #%% work
 
 data_loader.setup_MNIST(activity_threshold=0.02,val_split=0.1) # manually delete pixel_activations.csv to reinitialise
-model = setup_api.eprop_model(num_threads=1,num_virtual_procs=4)
+model = setup.eprop_model(num_threads=1,num_virtual_procs=4)
 model.timing(1.0,1,steps)
 model.input_layer(n_in)
 model.recurrent_layer(125,params_nrn_rec,adaptive=True)

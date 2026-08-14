@@ -1,0 +1,26 @@
+services:
+  pynest-dev:
+    build: .
+    devices:
+      - "nvidia.com/gpu=all"
+    network_mode: "host"
+    ports:
+      - "5432:5432"
+    volumes:
+      - ~/Workspace/SNN-benchmarking:/workspace
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    command: sleep infinity
+    environment:
+      - PYTHONUNBUFFERED=1
+    env_file:
+      - .env
+  pynest-SQL:
+    build: ./sql
+    volumes:
+      - rdb:/var/lib/postgresql/data
+    env_file:
+      - .env
+volumes:
+ rdb:

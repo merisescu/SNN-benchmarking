@@ -6,5 +6,6 @@ examples/
 figures/
 data/
 __pycache__/
+.env
 NMNIST_pixels_blocklist.txt
 RNN_eprop.ipynb
