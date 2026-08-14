@@ -1,6 +1,6 @@
 services:
   pynest-dev:
-    build: .
+    build: ./nest
     devices:
       - "nvidia.com/gpu=all"
     network_mode: "host"
@@ -22,5 +22,7 @@ services:
       - rdb:/var/lib/postgresql/data
     env_file:
       - .env
+    command: sleep infinity
+    tty: true
 volumes:
  rdb:
