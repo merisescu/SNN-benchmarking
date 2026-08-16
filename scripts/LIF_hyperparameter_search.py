@@ -83,11 +83,8 @@ def objective(trial):
     return spikes, accuracy
 
 if __name__ == "__main__":
-    study = optuna.create_study(
-        directions=['minimize','maximize'],
-        sampler=optuna.samplers.TPESampler(),
-        study_name="distributed_test",
+    study = optuna.load_study(
+        study_name="NMNIST_LIF",
         storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{lif_db}",
-        load_if_exists=True,
     )
     study.optimize(objective, n_trials=2)

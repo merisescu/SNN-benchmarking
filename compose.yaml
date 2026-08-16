@@ -20,11 +20,9 @@ services:
   pynest-sql:
     build: ./sql
     volumes:
-      - nest-rdb:/var/lib/postgresql/data
-      - ./init.sh:/docker-entrypoint-initdb.d/init.sql:ro
+      - nest-rdb:/var/lib/postgresql
     env_file:
       - .env
-    command: sleep infinity
     tty: true
 volumes:
   nest-rdb:
