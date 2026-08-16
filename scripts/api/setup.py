@@ -162,9 +162,9 @@ class Trainer:
         print('got events')
 
     def get_results(self):
-            for k, v in self.results_dict.items():
-                self.results_dict[k] = np.array(v)
-            return self.results_dict, self.events
+        for k, v in self.results_dict.items():
+            self.results_dict[k] = np.array(v)
+        return self.results_dict, self.events
 
 
 #%%

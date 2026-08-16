@@ -4,7 +4,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ~/snn/MSc_NEST_examples:/workspace
+      - ./:/workspace
     working_dir: /workspace
     stdin_open: true
     tty: true

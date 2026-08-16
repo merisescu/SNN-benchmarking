@@ -7,7 +7,7 @@ import scripts.api.dataset as dataset
 
 user = os.environ['POSTGRES_USER']
 pwd = os.environ['POSTGRES_PASSWORD']
-lif_db = os.environ['LIF_DB']
+db = os.environ['POSTGRES_DB']
 
 #%% NMNIST hyperparameter search
 
@@ -70,9 +70,9 @@ def objective(trial):
         model.recorders(profiling='sparse',save_to_disk=False)
         model.connect(sparsity=[0.9,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
         model.compile() # if you want more data add custom metrics, and any needed recorder information from the setup api. full recording is not suitable for hyperparameter search
-        model.fit(data_loader,n_iter_train=30,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+        model.fit(data_loader,n_iter_train=10,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
-        results = model.get_results()
+        results, _ = model.get_results()
 
         accuracy[i] = 1-results['error'][-1]
         spikes[i] = results['spikes'][-1]
@@ -82,9 +82,14 @@ def objective(trial):
 
     return spikes, accuracy
 
+sampler = optuna.samplers.TPESampler(
+    constant_liar=True,
+)
+
 if __name__ == "__main__":
     study = optuna.load_study(
         study_name="NMNIST_LIF",
-        storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{lif_db}",
+        sampler=sampler,
+        storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{db}",
     )
-    study.optimize(objective, n_trials=2)
+    study.optimize(objective, n_trials=5)

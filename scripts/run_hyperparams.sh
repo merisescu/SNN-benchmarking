@@ -1,5 +1,5 @@
 #!/bin/bash
 
-python -m scipts.init_studies
+python -m scripts.init_studies
 
-parallel -j $1 scripts.LIF_hyperparameter_search.py ::: {1..$2}
+parallel --ungroup -j $1 -D 5 scripts.LIF_hyperparameter_search.py ::: 1

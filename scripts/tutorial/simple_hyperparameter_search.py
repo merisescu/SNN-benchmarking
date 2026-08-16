@@ -59,9 +59,11 @@ def LIF_objective(trial):
     model.recorders(profiling='sparse',save_to_disk=False)
     model.connect(sparsity=[0.9,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
     model.compile() # if you want more data add custom metrics, and any needed recorder information from the setup api. full recording is not suitable for hyperparameter search
-    model.fit(data_loader,n_iter_train=200,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+    model.fit(data_loader,n_iter_train=10,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
-    results = model.get_results()
+    results, _ = model.get_results()
+
+    print("results: ", results)
 
     accuracy = 1-results['error'][-1]
     spikes = results['spikes'][-1]
@@ -69,7 +71,7 @@ def LIF_objective(trial):
     return spikes, accuracy
 
 LIF_study = optuna.create_study(storage=optuna.storages.InMemoryStorage(),directions=['minimize','maximize'],sampler=optuna.samplers.TPESampler())
-LIF_study.optimize(LIF_objective,n_trials=50)
+LIF_study.optimize(LIF_objective,n_trials=3)
 
 #%%
 
