@@ -13,6 +13,7 @@ dependencies = [
     "nest-simulator>=3.10.0",
     "numpy==2.4.6",
     "optuna>=4.9.0",
+    "psycopg2-binary>=2.9.12",
     "tonic>=1.6.0",
 ]
 

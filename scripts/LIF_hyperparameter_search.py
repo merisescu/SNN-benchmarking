@@ -70,7 +70,7 @@ def objective(trial):
         model.recorders(profiling='sparse',save_to_disk=False)
         model.connect(sparsity=[0.9,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
         model.compile() # if you want more data add custom metrics, and any needed recorder information from the setup api. full recording is not suitable for hyperparameter search
-        model.fit(data_loader,n_iter_train=200,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+        model.fit(data_loader,n_iter_train=30,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
         results = model.get_results()
 
@@ -87,7 +87,7 @@ if __name__ == "__main__":
         directions=['minimize','maximize'],
         sampler=optuna.samplers.TPESampler(),
         study_name="distributed_test",
-        storage=f"postgresql://{user}:{pwd}@127.0.0.1:5432/{lif_db}",
+        storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{lif_db}",
         load_if_exists=True,
     )
-    study.optimize(objective, n_trials=100)
+    study.optimize(objective, n_trials=2)
