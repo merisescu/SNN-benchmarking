@@ -5,9 +5,9 @@ import numpy as np
 import scripts.api.setup as setup
 import scripts.api.dataset as dataset
 
-SQL_USER = os.environ['SQL_USER']
-SQL_PWD = os.environ['SQL_PWD']
-SQL_DB = os.environ['SQL_DB']
+user = os.environ['POSTGRES_USER']
+pwd = os.environ['POSTGRES_PASSWORD']
+lif_db = os.environ['LIF_DB']
 
 #%% NMNIST hyperparameter search
 
@@ -87,7 +87,7 @@ if __name__ == "__main__":
         directions=['minimize','maximize'],
         sampler=optuna.samplers.TPESampler(),
         study_name="distributed_test",
-        storage=f"postgresql://{SQL_USER}:{SQL_PWD}@127.0.0.1:5432/{SQL_DB}",
+        storage=f"postgresql://{user}:{pwd}@127.0.0.1:5432/{lif_db}",
         load_if_exists=True,
     )
     study.optimize(objective, n_trials=100)

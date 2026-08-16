@@ -1,28 +1,31 @@
 services:
   pynest-dev:
     build: ./nest
-    devices:
-      - "nvidia.com/gpu=all"
     network_mode: "host"
     ports:
       - "5432:5432"
     volumes:
-      - ~/Workspace/SNN-benchmarking:/workspace
+      - ~/snn/MSc_NEST_examples:/workspace
     working_dir: /workspace
     stdin_open: true
     tty: true
-    command: sleep infinity
+    command: >
+      sh -c "
+        uv sync &&
+        sleep infinity
+      "
     environment:
       - PYTHONUNBUFFERED=1
     env_file:
       - .env
-  pynest-SQL:
+  pynest-sql:
     build: ./sql
     volumes:
-      - rdb:/var/lib/postgresql/data
+      - nest-rdb:/var/lib/postgresql/data
+      - ./init.sh:/docker-entrypoint-initdb.d/init.sql:ro
     env_file:
       - .env
     command: sleep infinity
     tty: true
 volumes:
- rdb:
+  nest-rdb:

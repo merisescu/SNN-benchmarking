@@ -1,4 +1,4 @@
-FROM nvidia/cuda:13.2.0-cudnn-devel-ubuntu24.04
+FROM python:3.14
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -14,6 +14,4 @@ RUN curl -sS https://starship.rs/install.sh | sh -s -- --yes \
     && echo '[[ -f ~/.bashrc ]] && source ~/.bashrc' >> /root/.bash_profile \
     && echo 'export PATH="$HOME/.opencode/bin:$PATH"' >> /root/.bashrc
 
-RUN uv sync
-
-WORKDIR /Workspace
+WORKDIR /workspace

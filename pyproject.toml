@@ -20,6 +20,7 @@ dependencies = [
 override-dependencies = [
     "numpy==2.4.6",
 ]
+package = false
 
 [project.scripts]
 workspace = "workspace:main"
