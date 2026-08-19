@@ -63,7 +63,7 @@ def objective(trial):
 
         data_loader.setup_MNIST(activity_threshold=0.02,val_split=0.1) # manually delete pixel_activations.csv to reinitialise
         model = setup.eprop_model(num_threads=1,num_virtual_procs=4)
-        model.timing(1.0,1,steps)
+        model.timing(0.1,1,steps)
         model.input_layer(n_in)
         model.recurrent_layer(trial.suggest_int('reccurent_neurons',50,200,step=25),params_nrn_rec,adaptive=False)
         model.output_layer(n_out,params_nrn_out)
@@ -77,19 +77,14 @@ def objective(trial):
         accuracy[i] = 1-results['error'][-1]
         spikes[i] = results['spikes'][-1]
 
-    accuracy[i] = np.mean(accuracy)
-    spikes[i] = np.mean(spikes)
+    accuracy = np.mean(accuracy)
+    spikes = np.mean(spikes)
 
     return spikes, accuracy
-
-sampler = optuna.samplers.TPESampler(
-    constant_liar=True,
-)
 
 if __name__ == "__main__":
     study = optuna.load_study(
         study_name="NMNIST_LIF",
-        sampler=sampler,
         storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{db}",
     )
     study.optimize(objective, n_trials=5)

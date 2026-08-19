@@ -205,4 +205,150 @@ ax[2].set_xlabel(r"time (ms)")
 ax[2].axhline(0.6,linestyle='--',linewidth=0.5,color='k')
 fig.tight_layout()
 
-# %% Izhikevich
+# %% Izhikevich with step current input
+duration = 800
+resolution = 0.1 # ms
+steps = round(duration/resolution)
+params_setup = {"resolution":resolution}
+params_mm_rec['interval']=resolution
+times = np.arange(0, duration, resolution)
+current = np.zeros(len(times))
+amplitude_times = [1,100,600]
+amplitude_values = [0,10,0]
+params_step = {
+    "amplitude_times": amplitude_times,
+    "amplitude_values": amplitude_values
+}
+for t, value in zip(amplitude_times, amplitude_values):
+    current[times >= t] = value
+
+nest.ResetKernel()
+nest.verbosity = nest.VerbosityLevel.FATAL
+nest.set(**params_setup)
+
+params_nrn_rec = {
+    "V_m": -70,
+    "U_m": -14,
+}
+
+input = nest.Create("step_current_generator",1,params_step)
+neuron = nest.Create("izhikevich",1,params_nrn_rec)
+
+params_mm_rec['record_from'] = ["V_m", "U_m"]
+mm = nest.Create("multimeter",params_mm_rec)
+sr = nest.Create("spike_recorder",params_sr_rec)
+
+nest.Connect(input,neuron,{"rule": "one_to_one"},params_syn_static)
+nest.Connect(mm,neuron,{"rule": "one_to_one"},params_syn_static)
+nest.Connect(neuron,sr,{"rule": "one_to_one"},params_syn_static)
+
+nest.Simulate(duration+1)
+
+
+events_mm = mm.get('events')
+events_sr = sr.get('events')
+v_m = events_mm['V_m']
+u_m = events_mm['U_m']
+time = events_mm['times']
+spikes = events_sr['times']
+
+for i in spikes:
+    i = int(i/resolution)
+    #v_m[i-1]=30
+
+v_m_adapt = v_m + (u_m+14)
+fig, ax = plt.subplots(3,1)
+ax[0].plot(time,current)
+ax[0].set_title("Izhikevich neuron with step current input")
+ax[0].set_ylabel(r"$z_i$")
+ax[1].plot(time, v_m)
+ax[1].plot(time, u_m)
+ax[1].set_title("Adaptive neuron voltage dynamics")
+ax[1].set_ylabel(r"$v_j$")
+ax[2].plot(time, v_m_adapt)
+ax[2].set_title('Voltage correcting for threshold adaptation ("Effective voltage")')
+ax[2].set_ylabel(r"$v_j+u_j$")
+ax[2].set_xlabel(r"time (ms)")
+ax[1].axhline(30,linestyle='--',linewidth=0.5,color='k')
+ax[2].axhline(30,linestyle='--',linewidth=0.5,color='k')
+fig.tight_layout()
+
+# %% Izhikevich with spike rate input
+duration = 800
+resolution = 0.1 # ms
+steps = round(duration/resolution)
+params_setup = {"resolution":resolution}
+params_mm_rec['interval']=resolution
+times = np.arange(0, duration, resolution)
+current = np.zeros(len(times))
+amplitude_times = [1,100,600]
+amplitude_values = [0,1,0]
+params_step = {
+    "amplitude_times": amplitude_times,
+    "amplitude_values": amplitude_values
+}
+for t, value in zip(amplitude_times, amplitude_values):
+    current[times >= t] = value
+
+nest.ResetKernel()
+nest.verbosity = nest.VerbosityLevel.FATAL
+nest.set(**params_setup)
+
+params_nrn_rec = {
+    "V_m": -70,
+    "U_m": -14
+}
+
+spike_times = []
+spike_weights = []
+weight = 25
+in_spikes = np.zeros(steps)
+
+for time in np.arange(100,600,8):
+    spike_times.append(time)
+    spike_weights.append(weight)
+    in_spikes[round(time/resolution)] = weight
+
+params_spikes_in = {"spike_times":spike_times,"spike_weights":spike_weights}
+
+input = nest.Create("spike_generator",1,params_spikes_in)
+neuron = nest.Create("izhikevich",1,params_nrn_rec)
+
+params_mm_rec['record_from'] = ["V_m", "U_m"]
+mm = nest.Create("multimeter",params_mm_rec)
+sr = nest.Create("spike_recorder",params_sr_rec)
+
+nest.Connect(input,neuron,{"rule": "one_to_one"},params_syn_static)
+nest.Connect(mm,neuron,{"rule": "one_to_one"},params_syn_static)
+nest.Connect(neuron,sr,{"rule": "one_to_one"},params_syn_static)
+
+nest.Simulate(duration+1)
+
+events_mm = mm.get('events')
+events_sr = sr.get('events')
+v_m = events_mm['V_m']
+u_m = events_mm['U_m']
+time = events_mm['times']
+spikes = events_sr['times']
+
+for i in spikes:
+    i = int(i)
+    #v_m[i-1]+=3
+
+v_m_adapt = v_m + (u_m+14)
+fig, ax = plt.subplots(3,1)
+ax[0].plot(time,in_spikes)
+ax[0].set_title("Izhikevich contstant rate spike train")
+ax[0].set_ylabel(r"$z_i$")
+ax[1].plot(time, v_m)
+ax[1].plot(time, u_m)
+ax[1].set_title("Adaptive neuron voltage dynamics")
+ax[1].set_ylabel(r"$v_j$")
+#ax[1].set_ylim([-80,0])
+ax[2].plot(time, v_m_adapt)
+ax[2].set_title('Voltage correcting for threshold adaptation ("Effective voltage")')
+ax[2].set_ylabel(r"$v_j+u_j$")
+ax[2].set_xlabel(r"time (ms)")
+#ax[2].axhline(0.6,linestyle='--',linewidth=0.5,color='k')
+fig.tight_layout()
+# %%

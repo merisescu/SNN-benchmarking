@@ -18,7 +18,7 @@ steps = {
     "sequence": 300,  # time steps of one full sequence
     "learning_window": 10,  # time steps of window with non-zero learning signals
 }
-'''
+
 # neuron parameters
 eprop_isi_trace_cutoff = 100 # after this many steps after a spike, stops computing eligibility trace
 params_nrn_out = {
@@ -47,8 +47,8 @@ params_nrn_rec = {
 
     "f_target": 10, # Hz
 
-}'''
-
+}
+'''
 eprop_isi_trace_cutoff = 100 # after this many steps after a spike, stops computing eligibility trace
 params_nrn_out = {
     "tau_m": 92.74,
@@ -76,7 +76,7 @@ params_nrn_rec = {
 
     "f_target": 1.6, # Hz
 
-}
+}'''
 
 
 #%% work
