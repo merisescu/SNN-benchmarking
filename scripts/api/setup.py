@@ -1,7 +1,7 @@
 import numpy as np
 import nest
 import time
-#from sklearn.metrics import 
+from sklearn.metrics import roc_auc_score
 #%%
 
 # we always want trainer to receive data as a list len(n_in) where each list item is an array that contains spike times for that neuron
@@ -12,6 +12,7 @@ class Trainer:
         self.batch_loader = None
         self.results_dict = {
             "error": [],
+            "auc": [],
             "spikes": [],
             "loss": [],
             "iteration": [],
@@ -24,6 +25,7 @@ class Trainer:
         self.k_iter = 0
         self.early_stop = False
         self.profiling ='sparse'
+        self.run_evaluation=False
 
     def evaluate(self):
         # if saving to disk, do the data analysis separately
@@ -50,6 +52,17 @@ class Trainer:
 
             loss = 0.5 * np.mean(np.sum((readout_signal - target_signal) ** 2, axis=3), axis=(0, 2))
 
+            # multiclass ROC area under curve score using one vs. rest
+
+            y_prediction = np.mean(readout_signal, axis=3)
+            y_target = np.mean(target_signal, axis=3)
+            y_prediction = y_prediction.squeeze(1).T
+            y_target = y_target.squeeze(1).T
+            #print(y_prediction.shape, y_target.shape)
+            auc = [roc_auc_score(y_target,y_prediction,average='micro',multi_class='ovr')]
+
+            # binary accuracy
+
             y_prediction = np.argmax(np.mean(readout_signal, axis=3), axis=0)
             y_target = np.argmax(np.mean(target_signal, axis=3), axis=0)
             accuracy = np.mean((y_target == y_prediction), axis=1)
@@ -61,13 +74,12 @@ class Trainer:
 
             self.results_dict["iteration"].append(self.n_iter_sim)
             self.results_dict["error"].extend(errors)
+            self.results_dict["auc"].extend(auc)
             self.results_dict["spikes"].extend(spikes)
             self.results_dict["loss"].extend(loss)
             self.results_dict["label"].append(self.phase_label_previous)
 
             self.error = errors[0]
-
-            nest.SetStatus(self.recorders, {"n_events": 0})
 
     def run_phase(self,phase_label,eta,loader):
         
@@ -82,13 +94,16 @@ class Trainer:
         self.simulate("total_offset")
         self.simulate("extension_sim")
 
-        if self.n_iter_sim == 1:
-            self.get_events()
-        if self.n_iter_sim > 0 and self.profiling=="full":
+        if self.n_iter_sim > 0 and self.run_evaluation:
             start = time.perf_counter()
             self.evaluate()
+            if self.profiling=='full':
+                self.get_events()
+                print('got events')
             stop = time.perf_counter()
             print("evaluation time: ", stop-start)
+        if not self.save_to_disk:
+            nest.SetStatus(self.recorders, {'n_events': 0})
         
         self.duration["sim"] = self.group_size * self.duration["sequence"] - self.duration["total_offset"] - self.duration["extension_sim"]
         start = time.perf_counter()
@@ -116,7 +131,7 @@ class Trainer:
     def run_test(self):
         self.run_phase("test",0,self.batch_loader.test_loader)
 
-    def fit(self,batch_loader,n_iter_train=200,group_size=100):
+    def fit(self,batch_loader,n_iter_train=200,group_size=100,n_validations=10):
         self.recorders = nest.GetNodes(properties={"element_type": "recorder"})
         self.group_size = group_size
         self.batch_loader = batch_loader
@@ -128,14 +143,14 @@ class Trainer:
             self.run_training()
             self.k_iter += 1
             print('epoch: ', self.k_iter)
-
-        self.run_validation()
+        self.run_evaluation=True
+        for _ in range(n_validations):
+            self.run_validation()
 
         self.simulate("total_offset")
         self.simulate("extension_sim")
-
-        self.get_events()
         self.evaluate()
+        self.get_events()
 
         self.duration["task"] = self.n_iter_sim * self.group_size * self.duration["sequence"] + self.duration["total_offset"]
 
@@ -148,6 +163,7 @@ class Trainer:
             nest.Simulate(self.duration[k])
 
     def get_events(self):
+        # TODO: find memory leak
         def add_events(recorder_key, recorder):
             events = recorder.get('events')
             for k, v in events.items():
@@ -158,8 +174,6 @@ class Trainer:
         add_events("mm_rec", self.mm_rec)
         add_events("mm_out", self.mm_out)
         add_events("wr", self.wr)
-
-        print('got events')
 
     def get_results(self):
         for k, v in self.results_dict.items():
@@ -216,6 +230,7 @@ class eprop_model(Trainer):
     def recurrent_layer(self,n_rec,params,adaptive=False):
         self.rec_shape = n_rec
         self.adaptive = adaptive
+        self.voltage_scale = (params['V_th']-params['E_L'])/0.6
         if adaptive:
             model = 'eprop_iaf_adapt'
         else:
@@ -292,6 +307,7 @@ class eprop_model(Trainer):
             self.sr_in = nest.Create("spike_recorder", params_sr_in)
             self.mm_rec = nest.Create("multimeter", params_mm_rec)
         elif profiling=='full':
+            self.run_evaluation=True
             self.sr_in = nest.Create("spike_recorder", params_sr_in)
             # leaving here for now bc only benchmarking off spikes
             self.mm_rec = nest.Create("multimeter", params_mm_rec)
@@ -326,11 +342,11 @@ class eprop_model(Trainer):
             targets = target_pop[np.unique(target_idc[:self.n_record_w])]
             return senders, targets
 
-        weights_in_rec = np.array(np.random.randn(self.in_shape, self.rec_shape).T / np.sqrt(self.in_shape))
-        weights_rec_rec = np.array(np.random.randn(self.rec_shape, self.rec_shape).T / np.sqrt(self.rec_shape))
+        weights_in_rec = np.array(np.random.randn(self.in_shape, self.rec_shape).T / np.sqrt(self.in_shape)) * self.voltage_scale
+        weights_rec_rec = np.array(np.random.randn(self.rec_shape, self.rec_shape).T / np.sqrt(self.rec_shape)) * self.voltage_scale
         np.fill_diagonal(weights_rec_rec, 0.0)  # since no autapses set corresponding weights to zero
         weights_rec_out = np.array(calculate_glorot_dist(self.rec_shape, self.out_shape).T) * self.scale_factor
-        weights_out_rec = np.array(np.random.randn(self.rec_shape, self.out_shape)) / self.scale_factor
+        weights_out_rec = np.array(np.random.randn(self.rec_shape, self.out_shape)) * self.voltage_scale / self.scale_factor
 
         sparsity_level_in_rec = sparsity[0]
         sparsity_level_rec_rec = sparsity[1]

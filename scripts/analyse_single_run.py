@@ -28,6 +28,7 @@ params_nrn_out = {
     "E_L": 0.
 }
 
+
 params_nrn_rec = {
     "tau_m": 30,
     "c_reg": 2,
@@ -48,13 +49,26 @@ params_nrn_rec = {
     "f_target": 10, # Hz
 
 }
-'''
-eprop_isi_trace_cutoff = 100 # after this many steps after a spike, stops computing eligibility trace
-params_nrn_out = {
-    "tau_m": 92.74,
+
+'''params_nrn_rec = {
+    "tau_m": 30,
+    "c_reg": 2,
     "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
+    "E_L": 0.,
     "V_m": 0.,
-    "E_L": 0.
+    "V_th": 0.6,
+    "t_ref": 0.,
+    "kappa": 0.99,
+    "kappa_reg": 0.99,
+    "surrogate_gradient_function": "piecewise_linear",  # surrogate gradient / pseudo-derivative function
+    "surrogate_gradient_height": 0.5,  # height scaling of the pseudo-derivative
+    "surrogate_gradient_width": 1.0 / 1.7,  # width scaling of the pseudo-derivative
+
+    #"adapt_beta": 1.0,
+    #"adapt_tau": 10,
+
+    "f_target": 10, # Hz
+
 }
 
 params_nrn_rec = {
@@ -83,19 +97,20 @@ params_nrn_rec = {
 
 data_loader.setup_MNIST(activity_threshold=0.02,val_split=0.1) # manually delete pixel_activations.csv to reinitialise
 model = setup.eprop_model(num_threads=1,num_virtual_procs=4)
-model.timing(1.0,1,steps)
+model.timing(1,1,steps)
 model.input_layer(n_in)
-model.recurrent_layer(125,params_nrn_rec,adaptive=True)
+model.recurrent_layer(125,params_nrn_rec,adaptive=False)
 model.output_layer(n_out,params_nrn_out)
 model.recorders(profiling='full',save_to_disk=False)
-model.connect(sparsity=[0.9,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
+model.connect(sparsity=[0.75,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
 weights_pre_train = model.compile()
-model.fit(data_loader,n_iter_train=200,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+model.fit(data_loader,n_iter_train=30,group_size=100,n_validations=1) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
 results, events = model.get_results()
 
 accuracy = 1-results['error']
 spikes = results['spikes']
+auc = results['auc']
 
 #%% test loading info
 import os
@@ -160,7 +175,7 @@ def averages_std_over_time(input, window_size):
     ma[tail:-tail] = np.convolve(input,np.ones(window_size)/window_size,mode='valid')
     return ma
 
-fig, axs = plt.subplots(3, 1, sharex=True)
+fig, axs = plt.subplots(4, 1, sharex=True)
 if model.adaptive:
     fig.suptitle("Adaptive LIF model performance")
 else:
@@ -175,6 +190,7 @@ acc_ma = averages_std_over_time(1-results["error"][:-2],3)
 
 axs[0].plot(results["iteration"][:-1], results["loss"][:-1], label='training')
 axs[1].plot(results["iteration"][:-1], 1-results["error"][:-1], label='training')
+axs[2].plot(results["iteration"][:-1], results["auc"][:-1], label='training')
 '''
 for color, label in zip(colors, set(results_dict["label"])):
     idc = results_dict["label"] == label
@@ -184,7 +200,7 @@ for color, label in zip(colors, set(results_dict["label"])):
 
 axs[0].scatter(results["iteration"][-1],np.mean(results["loss"][-1:]),label='test')
 axs[1].scatter(results["iteration"][-1],np.mean(1-results["error"][-1:]),label='test')
-
+axs[2].scatter(results["iteration"][-1], results["auc"][-1:], label='test')
 axs[0].set_ylabel(r"$\mathcal{L} = \frac{1}{2} \sum_{t,k} \left( y_k^t -y_k^{*,t}\right)^2$")
 axs[1].set_ylabel(r"Classifier accuracy")
 
@@ -193,8 +209,8 @@ spikes = np.zeros(len(results['spikes']))
 for i in range(len(results['spikes'])-1):
     spikes[i+1] = results['spikes'][i+1]
 spikes = spikes
-axs[2].plot(results["iteration"],spikes)
-axs[2].set_ylabel("spikes per inference")
+axs[3].plot(results["iteration"],spikes)
+axs[3].set_ylabel("spikes per inference")
 
 axs[-1].set_xlabel("epoch")
 axs[-1].legend(bbox_to_anchor=(1.05, 0.5), loc="center left")
@@ -255,8 +271,8 @@ for title, xlims, savename in zip(
         plot_spikes(axs[1], events_sr_rec, r"$z_j$" + "\n", xlims)
 
         plot_recordable(axs[2], events_mm_rec, "V_m", r"$v_j$" + "\n(mV)", xlims)
-        plot_recordable(axs[2], events_mm_rec, "V_th_adapt", r"$v_j$" + "\n(mV)", xlims)
-        axs[2].set_ylim(0,1)
+        #plot_recordable(axs[2], events_mm_rec, "V_th_adapt", r"$v_j$" + "\n(mV)", xlims)
+        #axs[2].set_ylim(0,15)
         plot_recordable(axs[3], events_mm_rec, "surrogate_gradient", r"$\psi_j$" + "\n", xlims)
         plot_recordable(axs[4], events_mm_rec, "learning_signal", r"$L_j$" + "\n(pA)", xlims)
 
