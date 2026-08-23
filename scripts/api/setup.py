@@ -25,7 +25,7 @@ class Trainer:
         self.k_iter = 0
         self.early_stop = False
         self.profiling ='sparse'
-        self.run_evaluation=False
+        self.pruned=False
 
     def evaluate(self):
         # if saving to disk, do the data analysis separately
@@ -81,6 +81,11 @@ class Trainer:
 
             self.error = errors[0]
 
+
+
+            if self.n_iter_sim >= 20 and errors > 0.5:
+                self.pruned=True
+
     def run_phase(self,phase_label,eta,loader):
         
         self.params_common_syn_eprop["optimizer"]["eta"] = eta
@@ -94,7 +99,7 @@ class Trainer:
         self.simulate("total_offset")
         self.simulate("extension_sim")
 
-        if self.n_iter_sim > 0 and self.run_evaluation:
+        if self.n_iter_sim > 0:
             start = time.perf_counter()
             self.evaluate()
             if self.profiling=='full':
@@ -113,10 +118,6 @@ class Trainer:
         self.n_iter_sim += 1
         self.phase_label_previous = phase_label
 
-        # this extra simulation shouldnt be needed
-        #self.simulate("total_offset")
-        #self.simulate("extension_sim")
-
         return
 
     def run_training(self):
@@ -131,19 +132,19 @@ class Trainer:
     def run_test(self):
         self.run_phase("test",0,self.batch_loader.test_loader)
 
-    def fit(self,batch_loader,n_iter_train=200,group_size=100,n_validations=10):
+    def fit(self,batch_loader,n_iter_train=200,group_size=100,n_validations=10,early_stop=True):
         self.recorders = nest.GetNodes(properties={"element_type": "recorder"})
         self.group_size = group_size
         self.batch_loader = batch_loader
         self.batch_loader.group_size = group_size
         self.n_iter_train = n_iter_train
+        self.early_stop = early_stop
         while self.k_iter < self.n_iter_train:
-            #self.run_validation()
-            #self.run_early_stopping()
+            if self.pruned:
+                return
             self.run_training()
             self.k_iter += 1
             print('epoch: ', self.k_iter)
-        self.run_evaluation=True
         for _ in range(n_validations):
             self.run_validation()
 
@@ -230,14 +231,15 @@ class eprop_model(Trainer):
     def recurrent_layer(self,n_rec,params,adaptive=False):
         self.rec_shape = n_rec
         self.adaptive = adaptive
-        self.voltage_scale = (params['V_th']-params['E_L'])/0.6
+        #self.voltage_scale = (params['V_th']-params['E_L'])/0.6
+        self.voltage_scale = 1
         if adaptive:
             model = 'eprop_iaf_adapt'
         else:
             model = 'eprop_iaf'
 
         self.scale_factor = 1.0 - params["kappa"]  # factor for rescaling due to removal of irregular spike arrival
-
+        params["c_reg"] /= self.duration['sequence'] * (self.scale_factor ** 2)
         params["flush_event_send_interval"] = self.duration["sequence"]
         self.nrns_rec = nest.Create(model,self.rec_shape,params)
 

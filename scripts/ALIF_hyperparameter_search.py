@@ -49,8 +49,8 @@ def objective(trial):
             "V_m": 0.,
             "V_th": trial.suggest_float('V_th', 0.1, 1),
             "t_ref": trial.suggest_float('t_ref', 0, 20),
-            "kappa": trial.suggest_float('kappa',0.9,1),
-            "kappa_reg": trial.suggest_float('kappa_reg',0,1),
+            "kappa": trial.suggest_float('kappa',0.85,1),
+            "kappa_reg": trial.suggest_float('kappa_reg',0.85,1),
             "surrogate_gradient_function": "piecewise_linear",  # surrogate gradient / pseudo-derivative function
             "surrogate_gradient_height": 0.5,  # height scaling of the pseudo-derivative
             "surrogate_gradient_width": 1.0 / 1.7,  # width scaling of the pseudo-derivative
@@ -70,7 +70,10 @@ def objective(trial):
         model.recorders(profiling='sparse',save_to_disk=False)
         model.connect(sparsity=[0.9,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
         model.compile() # if you want more data add custom metrics, and any needed recorder information from the setup api. full recording is not suitable for hyperparameter search
-        model.fit(data_loader,n_iter_train=200,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+        model.fit(data_loader,n_iter_train=100,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+
+        if model.pruned:
+            raise optuna.TrialPruned()
 
         results, _ = model.get_results()
 
@@ -87,7 +90,7 @@ def objective(trial):
 
 if __name__ == "__main__":
     study = optuna.load_study(
-        study_name="NMNIST_ALIF",
+        study_name="NMNIST_ALIF_v2",
         storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{db}",
     )
     study.optimize(objective, n_trials=None)

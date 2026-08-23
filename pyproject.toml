@@ -10,9 +10,11 @@ requires-python = ">=3.14"
 dependencies = [
     "cnsplots>=0.4.0",
     "matplotlib>=3.11.1",
+    "nbformat>=5.11.1",
     "nest-simulator>=3.10.0",
     "numpy==2.4.6",
     "optuna>=4.9.0",
+    "plotly>=6.9.0",
     "psycopg2-binary>=2.9.12",
     "tonic>=1.6.0",
 ]

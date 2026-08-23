@@ -166,7 +166,22 @@ class MNIST_loader:
         return spikes,labels
 
 #%% Spiking speech commands
+class SSC_loader:
+    def __init__(self):
+        self.group_size = 1
+        self.train_dataset = None
+        self.train_idx = None
+        self.val_dataset = None
+        self.val_idx = None
+        self.test_dataset = None
+        self.test_idx = None
+        self.active_pixels = None
+        self.current_train_idx = 0
+        self.current_val_idx = 0
+        self.current_test_idx = 0
 
-def setup_speech_commands():
-    from tonic.datasets import SSC
-    return
+    def setup_speech_commands(self):
+        from tonic.datasets import SSC
+        self.train_dataset = SSC(save_to='./',split='train')
+        self.val_dataset = SSC(save_to='./',split='val')
+        self.test_dataset = SSC(save_to='./',split='test')

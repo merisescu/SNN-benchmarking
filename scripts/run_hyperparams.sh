@@ -2,10 +2,6 @@
 
 .venv/bin/python -m scripts.init_studies
 
-JOBS=$1
-JOBS_PER= $1 / 2
-
-{
-    seq JOBS_PER | sed 's|^|scripts.LIF_hyperparameters_search |'
-    seq JOBS_PER | sed 's|^|scripts.ALIF_hyperparameters_search |'
-} | parallel -j JOBS --colsep ' './venv/bin/python -m {1}
+parallel -u -j $1 -D 2 .venv/bin/python -m ::: \
+  $(yes scripts.LIF_hyperparameter_search | head -$2) \
+  $(yes scripts.ALIF_hyperparameter_search | head -$3)
