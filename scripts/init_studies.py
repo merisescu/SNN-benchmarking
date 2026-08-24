@@ -6,8 +6,8 @@ pwd = os.environ['POSTGRES_PASSWORD']
 lif_db = os.environ['POSTGRES_DB']
 
 if __name__ == "__main__":
-    optuna.delete_study(study_name="NMNIST_LIF_v2",storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{lif_db}")
-    optuna.delete_study(study_name="NMNIST_ALIF_v2",storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{lif_db}")
+    #optuna.delete_study(study_name="NMNIST_LIF_v2",storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{lif_db}")
+    #optuna.delete_study(study_name="NMNIST_ALIF_v2",storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{lif_db}")
 
     study = optuna.create_study(
         directions=['minimize','maximize'],
