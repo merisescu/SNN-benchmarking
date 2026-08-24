@@ -179,9 +179,47 @@ class SSC_loader:
         self.current_train_idx = 0
         self.current_val_idx = 0
         self.current_test_idx = 0
+        self.all_keywords = True
 
-    def setup_speech_commands(self):
+    def setup_speech_commands(self,all_keywords=True):
         from tonic.datasets import SSC
+        self.all_keywords = all_keywords
         self.train_dataset = SSC(save_to='./',split='train')
         self.val_dataset = SSC(save_to='./',split='val')
         self.test_dataset = SSC(save_to='./',split='test')
+
+    def training_loader(self):
+        end_index = self.current_train_idx + self.group_size
+        
+        selected_indices = np.take(self.train_idx, range(self.current_train_idx, end_index), mode="wrap")
+
+        self.current_train_idx = (self.current_train_idx + self.group_size) % len(self.train_idx)
+
+        spikes = [[] for _ in selected_indices]
+        labels = []
+
+        return spikes, labels
+    
+    def validation_loader(self):
+        end_index = self.current_val_idx + self.group_size
+                
+        selected_indices = np.take(self.val_idx, range(self.current_val_idx, end_index), mode="wrap")
+
+        self.current_val_idx = (self.current_val_idx + self.group_size) % len(self.val_idx)
+
+        spikes = [[] for _ in selected_indices]
+        labels = []
+        
+        return spikes, labels
+
+    def test_loader(self):
+        end_index = self.current_test_idx + self.group_size
+                
+        selected_indices = np.take(self.test_idx, range(self.current_test_idx, end_index), mode="wrap")
+
+        self.current_test_idx = (self.current_test_idx + self.group_size) % len(self.test_idx)
+
+        spikes = [[] for _ in selected_indices]
+        labels = []
+
+        return spikes, labels
