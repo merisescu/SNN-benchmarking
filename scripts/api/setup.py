@@ -517,4 +517,3 @@ class eprop_model(Trainer):
         print("data to signals time: ", stop-start)
     
         return params_gen_spk_in, params_gen_rate_target, params_gen_learning_window
-#%%
