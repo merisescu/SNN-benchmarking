@@ -26,6 +26,7 @@ class Trainer:
         self.early_stop = False
         self.profiling ='sparse'
         self.pruned=False
+        self.prune=True
 
     def evaluate(self):
         # if saving to disk, do the data analysis separately
@@ -83,7 +84,7 @@ class Trainer:
 
 
 
-            if self.n_iter_sim >= 10 and errors > 0.7:
+            if self.n_iter_sim >= 10 and errors > 0.7 and self.prune==True:
                 self.pruned=True
 
     def run_phase(self,phase_label,eta,loader):
@@ -132,13 +133,14 @@ class Trainer:
     def run_test(self):
         self.run_phase("test",0,self.batch_loader.test_loader)
 
-    def fit(self,batch_loader,n_iter_train=200,group_size=100,n_validations=10,early_stop=True):
+    def fit(self,batch_loader,n_iter_train=200,group_size=100,n_validations=10,early_stop=True,prune=False):
         self.recorders = nest.GetNodes(properties={"element_type": "recorder"})
         self.group_size = group_size
         self.batch_loader = batch_loader
         self.batch_loader.group_size = group_size
         self.n_iter_train = n_iter_train
         self.early_stop = early_stop
+        self.prune = prune
         while self.k_iter < self.n_iter_train:
             if self.pruned:
                 return
