@@ -16,6 +16,7 @@ class MNIST_loader:
         self.current_train_idx = 0
         self.current_val_idx = 0
         self.current_test_idx = 0
+        self.t_max = 336040
 
     def setup_MNIST(self,activity_threshold=0.02,val_split=0.1,show_plots=False):
         from tonic.datasets import NMNIST
@@ -25,7 +26,7 @@ class MNIST_loader:
         self.test_idx = np.arange(len(self.test_dataset))
         self.train_idx = np.arange(len(self.train_dataset))
         np.random.shuffle(self.test_idx)
-        np.random.shuffle(self.train_idx) # randomise data order
+        np.random.shuffle(self.train_idx)
 
         val_split_idx = int((1-val_split) * len(self.train_dataset))
         self.val_idx = self.train_idx[val_split_idx:]
@@ -39,7 +40,7 @@ class MNIST_loader:
             sensor_size = NMNIST.sensor_size
             frame_transform = transforms.ToFrame(sensor_size=sensor_size, n_time_bins=1)
 
-            data, labels = self.train_dataset[0] # initialise shape
+            data, labels = self.train_dataset[0]
             average = frame_transform(data).astype(np.float32)
 
             # collect pixel activations per trial and average
@@ -166,6 +167,34 @@ class MNIST_loader:
         return spikes,labels
 
 #%% Spiking speech commands
+import tonic.datasets
+import h5py
+import os
+from tonic.io import make_structured_array
+class SSC(tonic.datasets.SSC):
+    def __getitem__(self, index):
+        file = h5py.File(
+            os.path.join(self.location_on_system, self.data_filename), "r"
+        )
+
+        events = make_structured_array(
+            file["spikes/times"][index].astype(np.float32) * 1e6,
+            file["spikes/units"][index],
+            1,
+            dtype=self.dtype,
+        )
+
+        target = file["labels"][index].astype(int)
+
+        if self.transform is not None:
+            events = self.transform(events)
+
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        file.close()
+        return events, target
+
 class SSC_loader:
     def __init__(self):
         self.group_size = 1
@@ -180,13 +209,49 @@ class SSC_loader:
         self.current_val_idx = 0
         self.current_test_idx = 0
         self.all_keywords = True
+        self.t_max = 1e6
 
-    def setup_speech_commands(self,all_keywords=True):
-        from tonic.datasets import SSC
-        self.all_keywords = all_keywords
+    def setup_speech_commands(self,all_keywords=True,activity_threshold=0.02):
+        if all_keywords:
+            self.num_classes=35
+        else:
+            self.num_classes=11
+        self.n_in = 700
         self.train_dataset = SSC(save_to='./',split='train')
-        self.val_dataset = SSC(save_to='./',split='val')
+        self.val_dataset = SSC(save_to='./',split='valid')
         self.test_dataset = SSC(save_to='./',split='test')
+        self.train_idx = np.arange(len(self.train_dataset))
+        self.val_idx = np.arange(len(self.val_dataset))
+        self.test_idx = np.arange(len(self.test_dataset))
+        np.random.shuffle(self.train_idx)
+        np.random.shuffle(self.val_idx)
+        np.random.shuffle(self.test_idx)
+        self.active_pixels = np.loadtxt("SSC_channel_activations.csv", skiprows=1, delimiter=",",dtype=[('x',np.int16)])
+        try:
+            self.active_pixels = np.loadtxt("SSC_channel_activations.csv", skiprows=1, delimiter=",",dtype=[('x',np.int16)])
+        except:
+            sensor_size = SSC.sensor_size
+            frame_transform = transforms.ToFrame(sensor_size=sensor_size, n_time_bins=1)
+
+            data, labels = self.train_dataset[0]
+            average = frame_transform(data).astype(np.float32)
+
+            # collect pixel activations per trial and average
+            labelcounter = 0
+            for i in self.train_idx-1:
+                data, labels = self.train_dataset[i+1]
+                frame = frame_transform(data).astype(np.float32)
+                average = np.add(average, frame)
+            average = average.squeeze()
+            average = np.divide(average, np.max(average))
+
+            active_pixels = np.argwhere(average > activity_threshold) # get indices of active pixels, i think doing it this way is faster and more natural than a binary mask considering the event based nature
+
+            np.savetxt("SSC_channel_activations.csv", X=active_pixels, header="x", delimiter=",",fmt='%i')
+            self.active_pixels = np.loadtxt("SSC_channel_activations.csv", skiprows=1, delimiter=",",dtype=[('x',np.int16)])
+        self.n_in = self.active_pixels.size
+    
+        return self.n_in, self.num_classes
 
     def training_loader(self):
         end_index = self.current_train_idx + self.group_size
@@ -197,6 +262,16 @@ class SSC_loader:
 
         spikes = [[] for _ in selected_indices]
         labels = []
+
+        for item, idx in enumerate(selected_indices):
+        
+            data, label = self.train_dataset[idx]
+            labels.extend([np.min([label,self.num_classes])])
+            
+            for px in range(self.n_in):
+                mask = np.isin(data[['x']],self.active_pixels[px])
+                relative_times = data[mask]["t"]
+                spikes[item].extend([relative_times])
 
         return spikes, labels
     
@@ -209,6 +284,16 @@ class SSC_loader:
 
         spikes = [[] for _ in selected_indices]
         labels = []
+
+        for item, idx in enumerate(selected_indices):
+                
+                    data, label = self.val_dataset[idx]
+                    labels.extend([label])
+                    
+                    for px in range(self.n_in):
+                        mask = np.isin(data[['x']],self.active_pixels[px])
+                        relative_times = data[mask]["t"]
+                        spikes[item].extend([relative_times])
         
         return spikes, labels
 
@@ -221,5 +306,15 @@ class SSC_loader:
 
         spikes = [[] for _ in selected_indices]
         labels = []
+
+        for item, idx in enumerate(selected_indices):
+                
+                    data, label = self.test_dataset[idx]
+                    labels.extend([label])
+                    
+                    for px in range(self.n_in):
+                        mask = np.isin(data[['x']],self.active_pixels[px])
+                        relative_times = data[mask]["t"]
+                        spikes[item].extend([relative_times])
 
         return spikes, labels

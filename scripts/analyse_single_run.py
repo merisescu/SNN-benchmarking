@@ -8,8 +8,11 @@ import scripts.api.dataset as  dataset
 #%%
 
 # load MNIST batch loader and initialise dataset
-data_loader = dataset.MNIST_loader()
-n_in, n_out = data_loader.setup_MNIST()
+#data_loader = dataset.MNIST_loader()
+#n_in, n_out = data_loader.setup_MNIST()
+
+data_loader = dataset.SSC_loader()
+n_in, n_out = data_loader.setup_speech_commands()
 
 
 #%% set parameters
@@ -51,52 +54,10 @@ params_nrn_rec = {
 
 }
 
-'''params_nrn_rec = {
-    "tau_m": 30,
-    "c_reg": 2,
-    "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
-    "E_L": 0.,
-    "V_m": 0.,
-    "V_th": 0.6,
-    "t_ref": 0.,
-    "kappa": 0.99,
-    "kappa_reg": 0.99,
-    "surrogate_gradient_function": "piecewise_linear",  # surrogate gradient / pseudo-derivative function
-    "surrogate_gradient_height": 0.5,  # height scaling of the pseudo-derivative
-    "surrogate_gradient_width": 1.0 / 1.7,  # width scaling of the pseudo-derivative
-
-    #"adapt_beta": 1.0,
-    #"adapt_tau": 10,
-
-    "f_target": 10, # Hz
-
-}
-
-params_nrn_rec = {
-    "tau_m": 63.45,
-    "c_reg": 2.579,
-    "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
-    "E_L": 0.,
-    "V_m": 0.,
-    "V_th": 0.3680,
-    "t_ref": 17.404,
-    "kappa": 0.8139,
-    "kappa_reg": 0.9727,
-    "surrogate_gradient_function": "piecewise_linear",  # surrogate gradient / pseudo-derivative function
-    "surrogate_gradient_height": 0.5,  # height scaling of the pseudo-derivative
-    "surrogate_gradient_width": 1.0 / 1.7,  # width scaling of the pseudo-derivative
-
-    "adapt_beta": 0.7,
-    "adapt_tau": 43.24,
-
-    "f_target": 1.6, # Hz
-
-}'''
-
 
 #%% work
 
-data_loader.setup_MNIST(activity_threshold=0.02,val_split=0.1) # manually delete pixel_activations.csv to reinitialise
+
 model = setup.eprop_model(num_threads=1,num_virtual_procs=4)
 model.timing(1,1,steps)
 model.input_layer(n_in)
@@ -105,7 +66,7 @@ model.output_layer(n_out,params_nrn_out)
 model.recorders(profiling='full',save_to_disk=False)
 model.connect(sparsity=[0.75,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
 weights_pre_train = model.compile()
-model.fit(data_loader,n_iter_train=200,group_size=100,n_validations=1) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+model.fit(data_loader,n_iter_train=100,group_size=100,n_validations=5) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
 results, events = model.get_results()
 
@@ -203,7 +164,7 @@ axs[0].scatter(results["iteration"][-1],np.mean(results["loss"][-1:]),label='tes
 axs[1].scatter(results["iteration"][-1],np.mean(1-results["error"][-1:]),label='test')
 axs[2].scatter(results["iteration"][-1], results["auc"][-1:], label='test')
 axs[0].set_ylabel(r"$\mathcal{L} = \frac{1}{2} \sum_{t,k} \left( y_k^t -y_k^{*,t}\right)^2$")
-axs[1].set_ylabel(r"Classifier accuracy")
+axs[1].set_ylabel(r"accuracy")
 
 spikes = np.zeros(len(results['spikes']))
 
@@ -211,7 +172,7 @@ for i in range(len(results['spikes'])-1):
     spikes[i+1] = results['spikes'][i+1]
 spikes = spikes
 axs[3].plot(results["iteration"],spikes)
-axs[3].set_ylabel("spikes per inference")
+axs[3].set_ylabel("spikes/inf.")
 
 axs[-1].set_xlabel("epoch")
 axs[-1].legend(bbox_to_anchor=(1.05, 0.5), loc="center left")

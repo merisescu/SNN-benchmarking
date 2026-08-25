@@ -1,5 +1,6 @@
 src/
 NMNIST/
+SSC/
 examples/
 .vscode/
 .venv/

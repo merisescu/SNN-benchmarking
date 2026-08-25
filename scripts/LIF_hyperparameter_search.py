@@ -66,9 +66,9 @@ def objective(trial):
         model.recurrent_layer(trial.suggest_int('reccurent_neurons',50,200,step=25),params_nrn_rec,adaptive=False)
         model.output_layer(n_out,params_nrn_out)
         model.recorders(profiling='sparse',save_to_disk=False)
-        model.connect(sparsity=[0.9,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
+        model.connect(sparsity=[0.75,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
         model.compile() # if you want more data add custom metrics, and any needed recorder information from the setup api. full recording is not suitable for hyperparameter search
-        model.fit(data_loader,n_iter_train=100,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+        model.fit(data_loader,n_iter_train=100,group_size=128) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
         if model.pruned:
             raise optuna.TrialPruned()
@@ -81,8 +81,8 @@ def objective(trial):
         accuracy[i] = np.mean(1-results['error'][val_idx])
         spikes[i] = np.mean(results['spikes'][val_idx])
 
-    accuracy = np.min(accuracy)
-    spikes = np.min(spikes)
+    accuracy = np.mean(accuracy)
+    spikes = np.mean(spikes)
 
     return spikes, accuracy
 

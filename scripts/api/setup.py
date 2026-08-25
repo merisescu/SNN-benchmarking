@@ -83,7 +83,7 @@ class Trainer:
 
 
 
-            if self.n_iter_sim >= 20 and errors > 0.5:
+            if self.n_iter_sim >= 10 and errors > 0.7:
                 self.pruned=True
 
     def run_phase(self,phase_label,eta,loader):
@@ -469,7 +469,6 @@ class eprop_model(Trainer):
         input_group, target_group = loader()
         stop = time.perf_counter()
         print("data loading time: ", stop-start)
-        # TODO: remove hardcoding of t_max = 336040
         start = time.perf_counter()
         spike_times = [[] for _ in range(self.in_shape)]
         
@@ -490,7 +489,7 @@ class eprop_model(Trainer):
             for n, relative_times in enumerate(input_group[group_element]):
                 if len(relative_times) > 0:
                     relative_times = np.array(relative_times)
-                    relative_times = np.around(relative_times * self.duration['sequence'] / 336040)
+                    relative_times = np.around(relative_times * self.duration['sequence'] / self.batch_loader.t_max)
                     spike_times[n].extend(
                         iteration_offset + group_element * self.duration["sequence"] + relative_times + self.duration["offset_gen"]
                     )
@@ -515,5 +514,17 @@ class eprop_model(Trainer):
 
         stop = time.perf_counter()
         print("data to signals time: ", stop-start)
+
+        for i, params in enumerate(params_gen_spk_in):
+            times = np.asarray(params["spike_times"])
+
+            if not np.issubdtype(times.dtype, np.number):
+                print("NON-NUMERIC:", i, times.dtype, times)
+
+            elif not np.all(np.isfinite(times)):
+                print("NON-FINITE:", i, times)
+
+            elif len(times) > 1 and not np.all(np.diff(times) >= 0):
+                print("UNSORTED:", i, times)
     
         return params_gen_spk_in, params_gen_rate_target, params_gen_learning_window
