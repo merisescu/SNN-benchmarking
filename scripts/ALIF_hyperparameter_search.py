@@ -22,44 +22,45 @@ no_trials = 2
 def objective(trial):
     accuracy = np.zeros(no_trials)
     spikes = np.zeros(no_trials)
+
+    # simulation parameters
+
+    steps = {
+    "sequence": 300,  # time steps of one full sequence
+    "learning_window": 10,  # time steps of window with non-zero learning signals
+    }
+
+    # neuron parameters
+    # TODO: add all necessary hyperparameters
+    eprop_isi_trace_cutoff = 100
+    params_nrn_out = {
+        "tau_m": trial.suggest_float('tau_m_out', 1, 200), #leakage time constant
+        "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
+        "V_m": 0.,
+        "E_L": 0.
+    }
+
+    params_nrn_rec = {
+        "tau_m": trial.suggest_float('tau_m_rec', 1, 200), #leakage time constant
+        "c_reg": trial.suggest_float('c_reg', 0, 10),
+        "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
+        "E_L": 0.,
+        "V_m": 0.,
+        "V_th": trial.suggest_float('V_th', 0.1, 1),
+        "t_ref": trial.suggest_float('t_ref', 0, 20),
+        "kappa": trial.suggest_float('kappa',0.85,1),
+        "kappa_reg": trial.suggest_float('kappa_reg',0.85,1),
+        "surrogate_gradient_function": "piecewise_linear",  # surrogate gradient / pseudo-derivative function
+        "surrogate_gradient_height": 0.5,  # height scaling of the pseudo-derivative
+        "surrogate_gradient_width": 1.0 / 1.7,  # width scaling of the pseudo-derivative
+
+        "adapt_beta": trial.suggest_float('adapt_beta',0,2),
+        "adapt_tau": trial.suggest_float('adapt_tau',1,200),
+
+        "f_target": trial.suggest_float("f_target", 1, 60), # Hz
+    }
+
     for i in range(no_trials):
-
-        # simulation parameters
-
-        steps = {
-        "sequence": 300,  # time steps of one full sequence
-        "learning_window": 10,  # time steps of window with non-zero learning signals
-        }
-
-        # neuron parameters
-        # TODO: add all necessary hyperparameters
-        eprop_isi_trace_cutoff = 100
-        params_nrn_out = {
-            "tau_m": trial.suggest_float('tau_m_out', 1, 200), #leakage time constant
-            "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
-            "V_m": 0.,
-            "E_L": 0.
-        }
-
-        params_nrn_rec = {
-            "tau_m": trial.suggest_float('tau_m_rec', 1, 200), #leakage time constant
-            "c_reg": trial.suggest_float('c_reg', 0, 10),
-            "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
-            "E_L": 0.,
-            "V_m": 0.,
-            "V_th": trial.suggest_float('V_th', 0.1, 1),
-            "t_ref": trial.suggest_float('t_ref', 0, 20),
-            "kappa": trial.suggest_float('kappa',0.85,1),
-            "kappa_reg": trial.suggest_float('kappa_reg',0.85,1),
-            "surrogate_gradient_function": "piecewise_linear",  # surrogate gradient / pseudo-derivative function
-            "surrogate_gradient_height": 0.5,  # height scaling of the pseudo-derivative
-            "surrogate_gradient_width": 1.0 / 1.7,  # width scaling of the pseudo-derivative
-        
-            "adapt_beta": trial.suggest_float('adapt_beta',0,2),
-            "adapt_tau": trial.suggest_float('adapt_tau',1,200),
-        
-            "f_target": trial.suggest_float("f_target", 1, 60), # Hz
-        }
 
         data_loader.setup_MNIST(activity_threshold=0.02,val_split=0.1) # manually delete pixel_activations.csv to reinitialise
         model = setup.eprop_model(num_threads=1,num_virtual_procs=4)
