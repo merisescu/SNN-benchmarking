@@ -70,7 +70,7 @@ def trial(hyperparams,adaptive):
     model = setup.eprop_model(num_threads=1,num_virtual_procs=4)
     model.timing(1,1,steps)
     model.input_layer(n_in)
-    model.recurrent_layer(hyperparams['recurrent_neurons'],params_nrn_rec,adaptive=adaptive)
+    model.recurrent_layer(hyperparams['reccurent_neurons'],params_nrn_rec,adaptive=adaptive)
     model.output_layer(n_out,params_nrn_out)
     model.recorders(profiling='sparse',save_to_disk=False)
     model.connect(sparsity=[0.75,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
@@ -84,8 +84,9 @@ def trial(hyperparams,adaptive):
 #%%
 
 temp = []
-for study, i, adaptive in zip(enumerate(studies), [False, True]):
-    for hyperparams, adaptive in zip(all_hyperparams[i]):
+studies_, indexes = enumerate(studies)
+for study, i, adaptive in zip(studies_, indexes, [False, True]):
+    for hyperparams in all_hyperparams[i]:
         results, _ = trial(hyperparams, adaptive)
         accuracy = 1-results['error']
         spikes = results['spikes']
@@ -107,3 +108,5 @@ for df, title in zip(dfs, ['LIF', 'ALIF']):
     df = df.sort_values(by="spikes")
     plt.scatter(df['spikes'],df['accuracy'],label=title)
 
+
+# %%
