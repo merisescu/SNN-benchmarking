@@ -230,15 +230,21 @@ class eprop_model(Trainer):
         self.gen_rate_target = nest.Create("step_rate_generator", self.out_shape)
         self.gen_learning_window = nest.Create("step_rate_generator")
 
-    def recurrent_layer(self,n_rec,params,adaptive=False):
+    def recurrent_layer(self,n_rec,params,adaptive=False,hard_reset=False,use_izhikevich=False):
         self.rec_shape = n_rec
         self.adaptive = adaptive
         #self.voltage_scale = (params['V_th']-params['E_L'])/0.6
         self.voltage_scale = 1
-        if adaptive:
-            model = 'eprop_iaf_adapt'
+        reset = ''
+        adapt = ''
+        if not use_izhikevich:
+            if hard_reset:
+                reset = '_psc_delta'
+            if adaptive:
+                adapt = '_adapt'
+            model = f'eprop_iaf{reset}{adapt}'
         else:
-            model = 'eprop_iaf'
+            model = 'eprop_izhikevich'
 
         self.scale_factor = 1.0 - params["kappa"]  # factor for rescaling due to removal of irregular spike arrival
         params["c_reg"] /= self.duration['sequence'] * (self.scale_factor ** 2)
