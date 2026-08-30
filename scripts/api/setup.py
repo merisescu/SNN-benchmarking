@@ -8,16 +8,18 @@ from sklearn.metrics import roc_auc_score
 # in order to allow for use with any dataset, we use a hook which should be defined outside the class to load each batch
 class Trainer:
 
-    def __init__(self):
+    def __init__(self,mode='Classifier'):
+        self.mode = mode
         self.batch_loader = None
+        self.function = None
         self.results_dict = {
             "error": [],
-            "auc": [],
             "spikes": [],
             "loss": [],
             "iteration": [],
-            "label": [],
         }
+        if self.mode=='Classifier':
+            self.results_dict.update({"auc": [],"label": []})
         self.events = {}
         self.n_iter_sim = 0
         self.phase_label_previous = ""
@@ -53,21 +55,35 @@ class Trainer:
 
             loss = 0.5 * np.mean(np.sum((readout_signal - target_signal) ** 2, axis=3), axis=(0, 2))
 
-            # multiclass ROC area under curve score using one vs. rest
-
-            y_prediction = np.mean(readout_signal, axis=3)
-            y_target = np.mean(target_signal, axis=3)
-            y_prediction = y_prediction.squeeze(1).T
-            y_target = y_target.squeeze(1).T
             #print(y_prediction.shape, y_target.shape)
-            auc = [roc_auc_score(y_target,y_prediction,average='micro',multi_class='ovr')]
+            if self.mode=='Classifier':
+                # multiclass ROC area under curve score using one vs. rest
 
-            # binary accuracy
+                y_prediction = np.mean(readout_signal, axis=3)
+                y_target = np.mean(target_signal, axis=3)
+                y_prediction = y_prediction.squeeze(1).T
+                y_target = y_target.squeeze(1).T
+                auc = [roc_auc_score(y_target,y_prediction,average='micro',multi_class='ovr')]
 
-            y_prediction = np.argmax(np.mean(readout_signal, axis=3), axis=0)
-            y_target = np.argmax(np.mean(target_signal, axis=3), axis=0)
-            accuracy = np.mean((y_target == y_prediction), axis=1)
-            errors = 1.0 - accuracy
+                # binary accuracy
+                
+                y_prediction = np.argmax(np.mean(readout_signal, axis=3), axis=0)
+                y_target = np.argmax(np.mean(target_signal, axis=3), axis=0)
+                accuracy = np.mean((y_target == y_prediction), axis=1)
+                errors = 1.0 - accuracy
+                self.results_dict["auc"].extend(auc)
+                self.results_dict["label"].append(self.phase_label_previous)
+            if self.mode=='Regressor':
+                # use sMAPE for accuracy/errors
+                y_prediction = readout_signal.squeeze(1)
+                y_target = target_signal.squeeze(1)
+                num = np.abs(y_prediction-y_target)
+                denom = np.abs(y_prediction)+np.abs(y_target)
+                smape = num/denom
+                # regular smape for 1 axis
+                # if multi dimensional function will average over all dimensions
+                errors = 2*np.mean(smape)
+                
 
             spikes = [self.sr_rec.n_events/self.group_size]
             # does not count spikes from the spike generator, this can be found either from self.sr_in.n_events
@@ -75,24 +91,25 @@ class Trainer:
 
             self.results_dict["iteration"].append(self.n_iter_sim)
             self.results_dict["error"].extend(errors)
-            self.results_dict["auc"].extend(auc)
+            
             self.results_dict["spikes"].extend(spikes)
             self.results_dict["loss"].extend(loss)
-            self.results_dict["label"].append(self.phase_label_previous)
 
             self.error = errors[0]
-
-
 
             if self.n_iter_sim >= 10 and errors > 0.7 and self.prune==True:
                 self.pruned=True
 
-    def run_phase(self,phase_label,eta,loader):
+    def run_phase(self,phase_label,eta,loader=None):
         
         self.params_common_syn_eprop["optimizer"]["eta"] = eta
         nest.SetDefaults("eprop_synapse", self.params_common_syn_eprop)
 
-        params_gen_spk_in, params_gen_rate_target, params_gen_learning_window = self.classifier_signals(loader)
+        if self.mode=='Classifier':
+            params_gen_spk_in, params_gen_rate_target, params_gen_learning_window = self.classifier_coding(loader)
+        elif self.mode=='Regressor':
+            params_gen_spk_in, params_gen_rate_target, params_gen_learning_window = self.regressor_coding()
+
         self.gen_spk_in.set(params_gen_spk_in)
         self.gen_rate_target.set(params_gen_rate_target)
         self.gen_learning_window.set(params_gen_learning_window)
@@ -122,22 +139,34 @@ class Trainer:
         return
 
     def run_training(self):
-        self.run_phase("training",self.eta_train,self.batch_loader.training_loader)
+        if self.mode == 'Classifier':
+            self.run_phase("training",self.eta_train,self.batch_loader.training_loader)
+        if self.mode == 'Regressor':
+            self.run_phase("training",self.eta_train)
 
     def run_validation(self):
-        self.run_phase("validation",0,self.batch_loader.validation_loader)
+        if self.mode == 'Classifier':
+            self.run_phase("validation",0,self.batch_loader.validation_loader)
+        if self.mode == 'Regressor':
+            self.run_phase("validation",0)
 
     def run_early_stopping(self):
-        return
+        return NotImplemented
 
     def run_test(self):
-        self.run_phase("test",0,self.batch_loader.test_loader)
+        if self.mode == 'Classifier':
+            self.run_phase("test",0,self.batch_loader.test_loader)
+        if self.mode == 'Regressor':
+            self.run_phase("test",0)
 
-    def fit(self,batch_loader,n_iter_train=200,group_size=100,n_validations=10,early_stop=True,prune=False):
+    def fit(self,batch_loader=None,function=None,n_iter_train=200,group_size=100,n_validations=10,early_stop=True,prune=False):
         self.recorders = nest.GetNodes(properties={"element_type": "recorder"})
         self.group_size = group_size
-        self.batch_loader = batch_loader
-        self.batch_loader.group_size = group_size
+        if self.mode == 'Classifier':
+            self.batch_loader = batch_loader
+            self.batch_loader.group_size = group_size
+        if self.mode == 'Regressor':
+            self.function = function
         self.n_iter_train = n_iter_train
         self.early_stop = early_stop
         self.prune = prune
@@ -188,8 +217,8 @@ class Trainer:
 
 class eprop_model(Trainer):
 
-    def __init__(self,num_threads,num_virtual_procs):
-        Trainer.__init__(self)
+    def __init__(self,mode='Classifier',num_threads=1,num_virtual_procs=4):
+        Trainer.__init__(self,mode)
         self.verbose = True
         self.in_shape = 0
         self.out_shape = 0
@@ -213,6 +242,9 @@ class eprop_model(Trainer):
 
         params['total_offset'] = params['offset_gen'] + params['delays']
 
+        if self.mode=='Regressor':
+            params['learning_window'] = params['sequence']
+
         self.steps = params
 
         self.duration = {'step': resolution}
@@ -221,7 +253,10 @@ class eprop_model(Trainer):
 
     def input_layer(self,n_in):
         self.in_shape = n_in
-        self.gen_spk_in = nest.Create("spike_generator", self.in_shape)
+        if self.mode == 'Classifier':
+            self.gen_spk_in = nest.Create("spike_generator", self.in_shape)
+        if self.mode == 'Regressor':
+            self.gen_spk_in = nest.Create("inhomogeneous_poisson_generator", self.in_shape)
         self.nrns_in = nest.Create("parrot_neuron", self.in_shape)
 
     def output_layer(self,n_out,params):
@@ -290,8 +325,9 @@ class eprop_model(Trainer):
         if self.adaptive:
             params_mm_rec['record_from'].extend(["V_th_adapt"])
 
+        input_wr = min([self.n_record_w,self.in_shape])
         params_wr = {
-            "senders": self.nrns_in[:self.n_record_w] + self.nrns_rec[:self.n_record_w],  # limit senders to subsample weights to record
+            "senders": self.nrns_in[:input_wr] + self.nrns_rec[:self.n_record_w],  # limit senders to subsample weights to record
             "targets": self.nrns_rec[:self.n_record_w] + self.nrns_out,  # limit targets to subsample weights to record from
             "record_to": self.backend,
             "start": start,
@@ -316,7 +352,7 @@ class eprop_model(Trainer):
             params_mm_out['record_from'] = ["readout_signal", "target_signal"]
             self.sr_in = nest.Create("spike_recorder", params_sr_in)
             self.mm_rec = nest.Create("multimeter", params_mm_rec)
-        elif profiling=='full':
+        if profiling=='full':
             self.run_evaluation=True
             self.sr_in = nest.Create("spike_recorder", params_sr_in)
             # leaving here for now bc only benchmarking off spikes
@@ -472,7 +508,7 @@ class eprop_model(Trainer):
         conns["weight_matrix"][conns["targets"], conns["senders"]] = conns["weight"]
         return conns
 
-    def classifier_signals(self,loader):
+    def classifier_coding(self,loader):
         start = time.perf_counter()
         input_group, target_group = loader()
         stop = time.perf_counter()
@@ -522,17 +558,39 @@ class eprop_model(Trainer):
 
         stop = time.perf_counter()
         print("data to signals time: ", stop-start)
-
-        for i, params in enumerate(params_gen_spk_in):
-            times = np.asarray(params["spike_times"])
-
-            if not np.issubdtype(times.dtype, np.number):
-                print("NON-NUMERIC:", i, times.dtype, times)
-
-            elif not np.all(np.isfinite(times)):
-                print("NON-FINITE:", i, times)
-
-            elif len(times) > 1 and not np.all(np.diff(times) >= 0):
-                print("UNSORTED:", i, times)
     
+        return params_gen_spk_in, params_gen_rate_target, params_gen_learning_window
+
+    def regressor_coding(self):
+        target = self.function(self.steps['sequence']+self.steps['total_offset'])
+
+        # for each input dimension x, same as input shape (and output shape)
+        spike_rates = [x for x in target]
+        iteration_offset = self.n_iter_sim * self.group_size * self.duration["sequence"]
+
+        params_gen_spk_in = [
+                            {
+                                "rate_times": np.arange(0.0, self.group_size * self.duration["sequence"], self.duration["step"])
+                                + iteration_offset
+                                + self.duration["total_offset"],
+                                "rate_values": np.tile(x[:-self.steps['total_offset']],self.group_size),
+                            }
+                            for x in spike_rates
+                        ]
+
+        params_gen_rate_target = [
+                    {
+                        "amplitude_times": np.arange(0.0, self.group_size * self.duration["sequence"], self.duration["step"])
+                        + iteration_offset
+                        + self.duration["total_offset"],
+                        "amplitude_values": np.tile(x[self.steps['total_offset']:],self.group_size),
+                    }
+                    for x in spike_rates
+                ]
+
+        params_gen_learning_window = {
+                    "amplitude_times":[self.duration["sequence"]],
+                    "amplitude_values": [1.0]
+                }
+
         return params_gen_spk_in, params_gen_rate_target, params_gen_learning_window
