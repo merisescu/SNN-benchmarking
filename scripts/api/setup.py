@@ -2,6 +2,8 @@ import numpy as np
 import nest
 import time
 from sklearn.metrics import roc_auc_score
+from snntorch.spikegen import rate, latency, delta
+from torch import Tensor
 #%%
 
 # we always want trainer to receive data as a list len(n_in) where each list item is an array that contains spike times for that neuron
@@ -11,7 +13,6 @@ class Trainer:
     def __init__(self,mode='Classifier'):
         self.mode = mode
         self.batch_loader = None
-        self.function = None
         self.results_dict = {
             "error": [],
             "spikes": [],
@@ -74,7 +75,7 @@ class Trainer:
                 self.results_dict["auc"].extend(auc)
                 self.results_dict["label"].append(self.phase_label_previous)
             if self.mode=='Regressor':
-                # use sMAPE for accuracy/errors
+                # sMAPE
                 y_prediction = readout_signal
                 y_target = target_signal
                 num = np.abs(y_prediction-y_target)
@@ -186,11 +187,10 @@ class Trainer:
             self.batch_loader = batch_loader
             self.batch_loader.group_size = group_size
         if self.mode == 'Regressor':
-            self.function = function
-            self.target = self.function(self.steps['sequence'])
+            self.target = function(self.steps['sequence'])
             self.sens = sens
         self.n_iter_train = n_iter_train
-        self.testing=testing
+        self.testing = testing
         self.early_stop = early_stop
         self.prune = prune
         self.duration["sim"] = self.group_size * self.duration["sequence"] - self.duration["total_offset"] - self.duration["extension_sim"]
@@ -211,7 +211,7 @@ class Trainer:
   
         self.simulate("total_offset")
         self.simulate("extension_sim")
-        if self.mode == 'Classifier':
+        if self.mode == 'Classifier' or not self.testing:
             self.evaluate()
             self.get_events()
         
@@ -282,15 +282,25 @@ class eprop_model(Trainer):
 
         self.duration.update({key: value * self.duration['step'] for key, value in params.items()})
 
-    def input_layer(self,n_in):
+    def input_layer(self,n_in,encoding='rate',channels=1):
         self.in_shape = n_in
+        self.encoding = encoding
         if self.mode == 'Classifier':
             self.gen_spk_in = nest.Create("spike_generator", self.in_shape)
             self.nrns_in = nest.Create("parrot_neuron", self.in_shape)
         if self.mode == 'Regressor':
-            self.gen_spk_in = nest.Create("inhomogeneous_poisson_generator", self.in_shape)
-            self.in_shape *= 450
-            self.nrns_in = nest.Create("parrot_neuron", self.in_shape)
+            if encoding == 'rate':
+                self.gen_spk_in = nest.Create("inhomogeneous_poisson_generator", self.in_shape)
+                self.in_shape *= channels
+                self.nrns_in = nest.Create("parrot_neuron", self.in_shape)
+            if encoding == 'latency':
+                return NotImplemented
+            if encoding == 'delta':
+                self.dimension = self.in_shape
+                self.in_shape *= 2 * channels
+                self.channels = channels
+                self.gen_spk_in = nest.Create("spike_generator", self.in_shape)
+                self.nrns_in = nest.Create("parrot_neuron", self.in_shape)
         
 
     def output_layer(self,n_out,params):
@@ -496,7 +506,11 @@ class eprop_model(Trainer):
         if self.mode == 'Classifier':
             nest.Connect(self.gen_spk_in, self.nrns_in, params_conn_one_to_one, params_syn_static) # connection 1
         if self.mode == 'Regressor':
-            nest.Connect(self.gen_spk_in, self.nrns_in, params_conn_all_to_all, params_syn_static) # connection 1
+            if self.encoding == 'rate':
+                nest.Connect(self.gen_spk_in, self.nrns_in, params_conn_all_to_all, params_syn_static) # connection 1
+            elif self.encoding == 'delta':
+                nest.Connect(self.gen_spk_in, self.nrns_in, params_conn_one_to_one, params_syn_static) # connection 1
+
 
         def sparsely_connect(weights, params_syn, nrns_pre, nrns_post):
             targets, sources = np.where(weights)
@@ -594,24 +608,40 @@ class eprop_model(Trainer):
         params_gen_spk_in = [{"spike_times": spk_times} for spk_times in spike_times]
 
         stop = time.perf_counter()
-        print("data to signals time: ", stop-start)
+        print("encoding time: ", stop-start)
     
         return params_gen_spk_in, params_gen_rate_target, params_gen_learning_window
 
     def regressor_coding(self):
+        start = time.perf_counter()
         # for each input dimension x, same as input shape (and output shape)
-        spike_rates = [x for x in self.target]
+        function = [x for x in self.target]
         iteration_offset = self.n_iter_sim * self.group_size * self.duration["sequence"]
 
-        params_gen_spk_in = [
-                            {
-                                "rate_times": np.arange(0.0, self.group_size * self.duration["sequence"], self.duration["step"])
-                                + iteration_offset
-                                + self.duration["total_offset"],
-                                "rate_values": np.tile(x*1000*self.sens,self.group_size),
-                            }
-                            for x in spike_rates
-                        ]
+        if self.encoding == 'rate':
+            params_gen_spk_in = [
+                                {
+                                    "rate_times": np.arange(0.0, self.group_size * self.duration["sequence"], self.duration["step"])
+                                    + iteration_offset
+                                    + self.duration["total_offset"],
+                                    "rate_values": np.tile(x*1000*self.sens,self.group_size),
+                                }
+                                for x in function
+                            ]
+
+        elif self.encoding == 'delta':
+            params_gen_spk_in = [[] for _ in range(self.in_shape)]
+            thresholds = np.logspace(-2.3,-1.3,self.channels)
+            for m, threshold in enumerate(thresholds):
+                for x, n in zip(function, range(len(function))):
+                    x = Tensor(x)
+                    for i, x in enumerate([x,-x]):
+                        f = delta(x,threshold=threshold,padding=True)
+                        f = f.numpy()
+                        f = np.argwhere(f == 1).T
+                        f = (f + self.duration['sequence'] * np.arange(self.group_size)[:, None]).ravel()
+                        f = f + iteration_offset + self.duration["total_offset"]
+                        params_gen_spk_in[self.dimension*2*m+2*n+i] = {"spike_times":f}
 
         params_gen_rate_target = [
                     {
@@ -620,12 +650,15 @@ class eprop_model(Trainer):
                         + self.duration["total_offset"]+5,
                         "amplitude_values": np.tile(x,self.group_size),
                     }
-                    for x in spike_rates
+                    for x in function
                 ]
 
         params_gen_learning_window = {
                     "amplitude_times":[1.0 + iteration_offset],
                     "amplitude_values": [1.0]
                 }
+
+        stop = time.perf_counter()
+        print("encoding time: ", stop-start)
 
         return params_gen_spk_in, params_gen_rate_target, params_gen_learning_window

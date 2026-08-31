@@ -37,23 +37,23 @@ params_nrn_out = {
 
 
 params_nrn_rec = {
-    "tau_m": 10,
-    "c_reg": 2,
+    "tau_m": 30,
+    "c_reg": 10,
     "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
     "E_L": 0.,
     "V_m": 0.,
     "V_th": 0.5,
     "t_ref": 0.,
     "kappa": 0.97,
-    "kappa_reg": 0.97,
+    "kappa_reg": 0.99,
     "surrogate_gradient_function": "piecewise_linear",  # surrogate gradient / pseudo-derivative function
     "surrogate_gradient_height": 1,  # height scaling of the pseudo-derivative
     "surrogate_gradient_width": 1,  # width scaling of the pseudo-derivative
 
-    "adapt_beta": 1.0,
-    "adapt_tau": 30,
+    "adapt_beta": 0.3,
+    "adapt_tau": 60,
 
-    "f_target": 1, # Hz
+    "f_target": 0.01, # Hz
 }
 
 
@@ -62,15 +62,15 @@ params_nrn_rec = {
 
 model = setup.eprop_model(mode='Regressor',num_threads=1,num_virtual_procs=4)
 model.timing(1,1,steps)
-model.input_layer(1)
+model.input_layer(1,encoding='delta',channels=8)
 model.recurrent_layer(150,params_nrn_rec,adaptive=True)
 model.output_layer(1,params_nrn_out)
 
 #%%
 model.recorders(profiling='full',save_to_disk=False)
-model.connect(sparsity=[0.99,0.75,0],eta_train=5e-3,optimizer='gradient_descent')
+model.connect(sparsity=[0.8,0.8,0],eta_train=5e-3,optimizer='gradient_descent')
 weights_pre_train = model.compile()
-model.fit(function=objective_func,sens=0.1,n_iter_train=200,group_size=20,n_validations=1,prune=False) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+model.fit(function=objective_func,sens=0.1,n_iter_train=100,group_size=10,n_validations=1,testing=False,prune=False) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
 #%%
 
@@ -103,10 +103,6 @@ weights_after = {
                 "rec_out": model.get_weights(model.nrns_rec, model.nrns_out),
             }
 weights_post_train = weights_after
-
-#%%
-
-print(events_sr_rec)
 
 #%% Visualisation
 from cycler import cycler
@@ -209,8 +205,8 @@ def plot_spikes(ax, events, ylabel, xlims):
     chosen_times = chosen_times[chosen_senders]
     chosen_r = np.ones(len(chosen_times))*chosen
 
-    ax.scatter(times_subset, senders_subset, s=1)
-    ax.scatter(chosen_times, chosen_r, s=2, c = 'r')
+    ax.scatter(times_subset, senders_subset, s=0.2)
+    ax.scatter(chosen_times, chosen_r, s=0.2, c = 'r')
     ax.set_ylabel(ylabel)
     margin = np.abs(np.max(senders_subset) - np.min(senders_subset)) * 0.1
     ax.set_ylim(np.min(senders_subset) - margin, np.max(senders_subset) + margin)
@@ -231,13 +227,13 @@ def plot_spike_rate(ax, events, ylabel, xlims):
     #margin = np.abs(np.max(senders_subset) - np.min(senders_subset)) * 0.1
     #ax.set_ylim(np.min(senders_subset) - margin, np.max(senders_subset) + margin)
 
-
 for title, xlims, savename in zip(
     ["Dynamic variables before training", "Dynamic variables after training"],
     [
         (0, model.steps["sequence"]),
         #(0, 100),
-        (((model.n_iter_sim - 0) * model.group_size - 1)* model.steps["sequence"], model.n_iter_sim * model.group_size * model.steps["sequence"]),
+        #(model.steps["sequence"]*200-100, model.steps["sequence"]*200),
+        (((model.n_iter_sim) * model.group_size - 1)* model.steps["sequence"], model.n_iter_sim * model.group_size * model.steps["sequence"]),
     ],["before","after"]
 ):
     
