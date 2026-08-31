@@ -1,18 +1,15 @@
 #%% imports
-import sys
-print(sys.path)
-
 import numpy as np
 import scripts.api.setup as setup
 import scripts.api.dataset as  dataset
-#%%
+#%% load dataset
 
 # load MNIST batch loader and initialise dataset
 #data_loader = dataset.MNIST_loader()
 #n_in, n_out = data_loader.setup_MNIST()
 
 data_loader = dataset.SSC_loader()
-n_in, n_out = data_loader.setup_speech_commands()
+n_in, n_out = data_loader.setup_speech_commands(n_channels=200)
 
 
 #%% set parameters
@@ -24,7 +21,7 @@ steps = {
 }
 
 # neuron parameters
-eprop_isi_trace_cutoff = 100 # after this many steps after a spike, stops computing eligibility trace
+eprop_isi_trace_cutoff = 300 # after this many steps after a spike, stops computing eligibility trace
 params_nrn_out = {
     "tau_m": 100,
     "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
@@ -39,7 +36,7 @@ params_nrn_rec = {
     "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
     "E_L": 0.,
     "V_m": 0.,
-    "V_th": 0.6,
+    "V_th": 1,
     "t_ref": 0.,
     "kappa": 0.99,
     "kappa_reg": 0.99,
@@ -58,15 +55,15 @@ params_nrn_rec = {
 #%% work
 
 
-model = setup.eprop_model(num_threads=1,num_virtual_procs=4)
+model = setup.eprop_model(num_threads=4,num_virtual_procs=4)
 model.timing(1,1,steps)
 model.input_layer(n_in)
 model.recurrent_layer(150,params_nrn_rec,adaptive=False)
 model.output_layer(n_out,params_nrn_out)
 model.recorders(profiling='full',save_to_disk=False)
-model.connect(sparsity=[0.75,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
+model.connect(sparsity=[0.9,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
 weights_pre_train = model.compile()
-model.fit(data_loader,n_iter_train=100,group_size=100,n_validations=5) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+model.fit(data_loader,n_iter_train=20,group_size=128,n_validations=2,prune=False) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
 results, events = model.get_results()
 

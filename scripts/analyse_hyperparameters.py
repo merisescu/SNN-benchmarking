@@ -17,6 +17,10 @@ plots_dir = "./figures/"
 nmnist_lif = optuna.load_study(study_name="NMNIST_LIF_sparse",storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{db}")
 
 optuna.visualization.plot_pareto_front(nmnist_lif,target_names=['spikes','accuracy'])
+
+#%%
+optuna.visualization.plot_hypervolume_history(nmnist_lif,[1000,0.8])
+
 #%%
 optuna.visualization.plot_hypervolume_history(nmnist_lif,[2000,0.8])
 
@@ -29,6 +33,10 @@ optuna.visualization.plot_slice(nmnist_lif, params=['tau_m_rec','tau_m_out','V_t
 nmnist_alif = optuna.load_study(study_name="NMNIST_ALIF_sparse",storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{db}")
 
 optuna.visualization.plot_pareto_front(nmnist_alif,target_names=['spikes','accuracy'])
+
+#%%
+optuna.visualization.plot_hypervolume_history(nmnist_alif,[1000,0.8])
+
 #%%
 optuna.visualization.plot_hypervolume_history(nmnist_alif,[2000,0.8])
 

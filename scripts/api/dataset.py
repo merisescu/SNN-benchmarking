@@ -211,12 +211,14 @@ class SSC_loader:
         self.all_keywords = True
         self.t_max = 1e6
 
-    def setup_speech_commands(self,all_keywords=True,activity_threshold=0.02):
+    def setup_speech_commands(self,all_keywords=True,activity_threshold=0.02,n_channels=700):
+        from tonic.transforms import Downsample
         if all_keywords:
             self.num_classes=35
         else:
             self.num_classes=11
-        self.n_in = 700
+        self.n_in = n_channels
+        downsample = Downsample(sensor_size=SSC.sensor_size,target_size=(n_channels))
         self.train_dataset = SSC(save_to='./',split='train')
         self.val_dataset = SSC(save_to='./',split='valid')
         self.test_dataset = SSC(save_to='./',split='test')
