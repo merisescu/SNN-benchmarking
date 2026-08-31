@@ -32,7 +32,7 @@ def objective(trial):
 
     # neuron parameters
     # TODO: add all necessary hyperparameters
-    eprop_isi_trace_cutoff = 100
+    eprop_isi_trace_cutoff = 300
     params_nrn_out = {
         "tau_m": trial.suggest_float('tau_m_out', 1, 200), #leakage time constant
         "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
@@ -60,18 +60,20 @@ def objective(trial):
         "f_target": trial.suggest_float("f_target", 1, 60), # Hz
     }
 
+    n_rec = trial.suggest_int('recurrent_neurons',50,200,step=25)
+
     for i in range(no_trials):
 
         data_loader.setup_MNIST(activity_threshold=0.02,val_split=0.1) # manually delete pixel_activations.csv to reinitialise
         model = setup.eprop_model(num_threads=1,num_virtual_procs=4)
         model.timing(1,1,steps)
         model.input_layer(n_in)
-        model.recurrent_layer(trial.suggest_int('reccurent_neurons',50,200,step=25),params_nrn_rec,adaptive=True)
+        model.recurrent_layer(n_rec,params_nrn_rec,adaptive=True)
         model.output_layer(n_out,params_nrn_out)
         model.recorders(profiling='sparse',save_to_disk=False)
-        model.connect(sparsity=[0.75,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
+        model.connect(sparsity=[0.9,0.99,0],eta_train=5e-3,optimizer='gradient_descent')
         model.compile() # if you want more data add custom metrics, and any needed recorder information from the setup api. full recording is not suitable for hyperparameter search
-        model.fit(data_loader,n_iter_train=100,group_size=100) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+        model.fit(data_loader,n_iter_train=100,group_size=128) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
         if model.pruned:
             raise optuna.TrialPruned()
@@ -91,7 +93,7 @@ def objective(trial):
 
 if __name__ == "__main__":
     study = optuna.load_study(
-        study_name="NMNIST_ALIF_v2",
+        study_name="NMNIST_ALIF_sparse",
         storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{db}",
     )
     study.optimize(objective, n_trials=None)
