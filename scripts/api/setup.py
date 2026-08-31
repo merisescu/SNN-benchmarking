@@ -127,8 +127,6 @@ class Trainer:
             print("evaluation time: ", stop-start)
         if not self.save_to_disk:
             nest.SetStatus(self.recorders, {'n_events': 0})
-        
-        self.duration["sim"] = self.group_size * self.duration["sequence"] - self.duration["total_offset"] - self.duration["extension_sim"]
         start = time.perf_counter()
         self.simulate("sim")
         stop = time.perf_counter()
@@ -157,9 +155,31 @@ class Trainer:
         if self.mode == 'Classifier':
             self.run_phase("test",0,self.batch_loader.test_loader)
         if self.mode == 'Regressor':
-            self.run_phase("test",0)
+            self.run_autoregression_test()
 
-    def fit(self,batch_loader=None,function=None,sens=0.5,n_iter_train=200,group_size=100,n_validations=10,early_stop=True,prune=False):
+    def run_autoregression_test(self):
+        params_gen_spk_in, params_gen_rate_target, params_gen_learning_window = self.regressor_coding()
+
+        self.gen_spk_in.set(params_gen_spk_in)
+        self.gen_rate_target.set(params_gen_rate_target)
+        self.gen_learning_window.set(params_gen_learning_window)
+
+        self.simulate("total_offset")
+        self.simulate("extension_sim")
+
+        for group in range(self.group_size):
+            # load regression history using 1-step forecast
+            nest.Simulate(self.duration["sequence"]/2)
+
+            # pull data from output to use as new input
+            # temporary workaround for lack of way to do this in NEST
+            # to my knowledge
+            for _ in self.steps['sequence']:
+                NotImplemented
+
+
+
+    def fit(self,batch_loader=None,function=None,sens=0.5,n_iter_train=200,group_size=100,n_validations=10,testing=False,early_stop=True,prune=False):
         self.recorders = nest.GetNodes(properties={"element_type": "recorder"})
         self.group_size = group_size
         if self.mode == 'Classifier':
@@ -170,8 +190,10 @@ class Trainer:
             self.target = self.function(self.steps['sequence'])
             self.sens = sens
         self.n_iter_train = n_iter_train
+        self.testing=testing
         self.early_stop = early_stop
         self.prune = prune
+        self.duration["sim"] = self.group_size * self.duration["sequence"] - self.duration["total_offset"] - self.duration["extension_sim"]
         while self.k_iter < self.n_iter_train:
             if self.pruned:
                 return
@@ -181,11 +203,18 @@ class Trainer:
         for _ in range(n_validations):
             self.run_validation()
 
+        if self.testing:
+            if self.mode == "Classifier":
+                self.run_test()
+            if self.mode == "Regressor":
+                self.run_autoregression_test()
+  
         self.simulate("total_offset")
         self.simulate("extension_sim")
-        self.evaluate()
-        self.get_events()
-
+        if self.mode == 'Classifier':
+            self.evaluate()
+            self.get_events()
+        
         self.duration["task"] = self.n_iter_sim * self.group_size * self.duration["sequence"] + self.duration["total_offset"]
 
         self.gen_spk_final_update.set({"spike_times": [self.duration["task"] + self.duration["extension_sim"] + 1]})

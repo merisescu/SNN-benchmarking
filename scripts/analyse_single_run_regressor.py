@@ -38,7 +38,7 @@ params_nrn_out = {
 
 params_nrn_rec = {
     "tau_m": 10,
-    "c_reg": 5,
+    "c_reg": 2,
     "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
     "E_L": 0.,
     "V_m": 0.,
@@ -70,7 +70,7 @@ model.output_layer(1,params_nrn_out)
 model.recorders(profiling='full',save_to_disk=False)
 model.connect(sparsity=[0.99,0.75,0],eta_train=5e-3,optimizer='gradient_descent')
 weights_pre_train = model.compile()
-model.fit(function=objective_func,sens=0.1,n_iter_train=50,group_size=20,n_validations=1,prune=False) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+model.fit(function=objective_func,sens=0.1,n_iter_train=200,group_size=20,n_validations=1,prune=False) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
 #%%
 
@@ -148,7 +148,7 @@ if model.adaptive:
 else:
     fig.suptitle("LIF model performance")
 
-axs[1].axhline(0.14,linestyle='--',linewidth=0.5,color='k',label=r'target')
+#axs[1].axhline(0.14,linestyle='--',linewidth=0.5,color='k',label=r'target')
 
 loss_ma = averages_std_over_time(results["loss"][:-2],3)
 acc_ma = averages_std_over_time(results["error"][:-2],3)
@@ -189,14 +189,15 @@ fig.tight_layout()
 
 chosen = model.nrns_rec_record.get("global_id")
 
-def plot_recordable(ax, events, recordable, ylabel, xlims):
+def plot_recordable(ax, events, recordable, ylabel, xlims, overlay=False):
     for sender in np.unique(events["senders"]):
         idc_sender = events["senders"] == sender
         idc_times = (events["times"][idc_sender] > xlims[0]) & (events["times"][idc_sender] < xlims[1])
         ax.plot(events["times"][idc_sender][idc_times], events[recordable][idc_sender][idc_times], lw=0.5)
-    ax.set_ylabel(ylabel)
-    margin = np.abs(np.max(events[recordable][idc_sender][idc_times]) - np.min(events[recordable][idc_sender][idc_times])) * 0.1
-    ax.set_ylim(np.min(events[recordable][idc_sender][idc_times]) - margin, np.max(events[recordable][idc_sender][idc_times]) + margin)
+    if not overlay:
+        ax.set_ylabel(ylabel)
+        margin = np.abs(np.max(events[recordable][idc_sender][idc_times]) - np.min(events[recordable][idc_sender][idc_times])) * 0.1
+        ax.set_ylim(np.min(events[recordable][idc_sender][idc_times]) - margin, np.max(events[recordable][idc_sender][idc_times]) + margin)
 
 def plot_spikes(ax, events, ylabel, xlims):
     idc_times = (events["times"] > xlims[0]) & (events["times"] < xlims[1])
@@ -244,14 +245,15 @@ for title, xlims, savename in zip(
         fig.suptitle(title)
 
         axs[0].plot(np.arange(xlims[0],xlims[1],1),objective_func(xlims[1]-xlims[0]).squeeze())
-        plot_recordable(axs[0], events_mm_out, "target_signal", r"$y^*_k$" + "\n", xlims)
+        #plot_recordable(axs[0], events_mm_out, "target_signal", r"$y^*_k$" + "\n", xlims)
         #plot_spike_rate(axs[0], events_sr_in, r"$f(x)$" + "\n", xlims)
 
         plot_spikes(axs[1], events_sr_in, r"$z_i$" + "\n", xlims)
         plot_spikes(axs[2], events_sr_rec, r"$z_j$" + "\n", xlims)
 
         plot_recordable(axs[3], events_mm_rec, "V_m", r"$v_j$" + "\n(mV)", xlims)
-        #plot_recordable(axs[2], events_mm_rec, "V_th_adapt", r"$v_j$" + "\n(mV)", xlims)
+        if model.adaptive:
+            plot_recordable(axs[3], events_mm_rec, "V_th_adapt", r"$v_j$" + "\n(mV)", xlims,overlay=True)
         #axs[2].set_ylim(0,15)
         plot_recordable(axs[4], events_mm_rec, "surrogate_gradient", r"$\psi_j$" + "\n", xlims)
         plot_recordable(axs[5], events_mm_rec, "learning_signal", r"$L_j$" + "\n(pA)", xlims)

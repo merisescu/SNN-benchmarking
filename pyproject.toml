@@ -17,6 +17,7 @@ dependencies = [
     "optunahub>=0.4.1",
     "plotly>=6.9.0",
     "psycopg2-binary>=2.9.12",
+    "reservoirpy>=0.4.2",
     "tonic>=1.6.0",
 ]
 

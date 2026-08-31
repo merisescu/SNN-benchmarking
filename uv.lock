@@ -1833,6 +1833,20 @@ wheels = [
 ]
 
 [[package]]
+name = "reservoirpy"
+version = "0.4.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "joblib" },
+    { name = "numpy" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4b/9c/86b36130da507633662626ff7eb3d184f0a6ca9dc9db6a6baedf9c7172d5/reservoirpy-0.4.2.tar.gz", hash = "sha256:0328c27635bf65e05e186432aabd34e77fbb96dc49fcb10767b8a568b385dc75", size = 161150, upload-time = "2026-06-08T12:21:05.761Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/34/a5/c04ad6073bef79f7164afd97d0cd536b698195f7d7e49b1b10307272822a/reservoirpy-0.4.2-py3-none-any.whl", hash = "sha256:cb6f61b2a3b90986d4cc89e14aa0c0b92632711272ff6f7dcd94e0c973217432", size = 216339, upload-time = "2026-06-08T12:21:04.385Z" },
+]
+
+[[package]]
 name = "rpds-py"
 version = "2026.6.3"
 source = { registry = "https://pypi.org/simple" }
@@ -2347,6 +2361,7 @@ dependencies = [
     { name = "optunahub" },
     { name = "plotly" },
     { name = "psycopg2-binary" },
+    { name = "reservoirpy" },
     { name = "tonic" },
 ]
 
@@ -2366,6 +2381,7 @@ requires-dist = [
     { name = "optunahub", specifier = ">=0.4.1" },
     { name = "plotly", specifier = ">=6.9.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.12" },
+    { name = "reservoirpy", specifier = ">=0.4.2" },
     { name = "tonic", specifier = ">=1.6.0" },
 ]
 
