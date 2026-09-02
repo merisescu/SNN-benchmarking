@@ -12,12 +12,10 @@ func_max = 1.32
 lyapunov_time = 197
 resolution = lyapunov_time / 75
 n_timesteps = round(20 * lyapunov_time / resolution) # (20 * 75)
-#n_timesteps = 1500
+#n_timesteps = 3000
 # keeping for clarity of calculation
 def objective_func(steps):
-    f = mackey_glass(steps+100).T
-    f = f[:,100:]
-    #f = f[:,::10]
+    f = mackey_glass(steps).T
     f /= func_max
     return f
 
@@ -31,7 +29,7 @@ steps = {
 # neuron parameters
 eprop_isi_trace_cutoff = 300 # after this many steps after a spike, stops computing eligibility trace
 params_nrn_out = {
-    "tau_m": 5,
+    "tau_m": 10,
     "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
     "V_m": 0.,
     "E_L": 0.
@@ -39,15 +37,15 @@ params_nrn_out = {
 
 
 params_nrn_rec = {
-    "tau_m": 5,
+    "tau_m": 10,
     "c_reg": 10,
     "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
     "E_L": 0.,
     "V_m": 0.,
-    "V_th": 0.5,
+    "V_th": 1.1,
     "t_ref": 0.,
-    "kappa": 0.95,
-    "kappa_reg": 0.99,
+    "kappa": 0.97,
+    "kappa_reg": 0.97,
     "surrogate_gradient_function": "piecewise_linear",  # surrogate gradient / pseudo-derivative function
     "surrogate_gradient_height": 1,  # height scaling of the pseudo-derivative
     "surrogate_gradient_width": 1,  # width scaling of the pseudo-derivative
@@ -64,13 +62,13 @@ params_nrn_rec = {
 
 model = setup.eprop_model(mode='Regressor',num_threads=1,num_virtual_procs=4)
 model.timing(1,1,steps)
-model.input_layer(1,encoding='delta',channels=6)
+model.input_layer(1,encoding='delta',channels=1)
 model.recurrent_layer(300,params_nrn_rec,adaptive=True)
 model.output_layer(1,params_nrn_out)
 
 #%%
 model.recorders(profiling='full',save_to_disk=False)
-model.connect(sparsity=[0.8,0.8,0],eta_train=5e-3,optimizer='gradient_descent')
+model.connect(sparsity=[0.75,0.75,0],eta_train=5e-3,optimizer='gradient_descent')
 weights_pre_train = model.compile()
 model.fit(function=objective_func,sens=0.1,n_iter_train=200,group_size=1,n_validations=1,testing=True,prune=False) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
@@ -162,11 +160,11 @@ for color, label in zip(colors, set(results_dict["label"])):
     axs[1].scatter(results_dict["iteration"][idc], 1-results_dict["error"][idc], label=label)
 '''
 
-#axs[0].scatter(results["iteration"][-1],np.mean(results["loss"][-1:]),label='test')
-#axs[1].scatter(results["iteration"][-1],np.mean(results["error"][-1:]),label='test')
+axs[0].scatter(results["iteration"][-1],np.mean(results["loss"][-1:]),label='test')
+axs[1].scatter(results["iteration"][-1],np.mean(results["error"][-1:]),label='test')
 axs[0].set_ylabel(r"$\mathcal{L} = \frac{1}{2} \sum_{t,k} \left( y_k^t -y_k^{*,t}\right)^2$")
 axs[1].axhline(0.01,c='k',linewidth=0.5,linestyle='--')
-axs[1].set_ylim([0.005,0.05])
+#axs[1].set_ylim([0.005,0.05])
 axs[1].set_ylabel(r"one-step prediction")
 
 '''spikes = np.zeros(len(results['spikes']))
@@ -175,7 +173,7 @@ for i in range(len(results['spikes'])-1):
     spikes[i+1] = results['spikes'][i+1]
 spikes = spikes'''
 axs[2].plot(results["iteration"][:-1],results["spikes"][:-1])
-#axs[2].scatter(results["iteration"][-1],results["spikes"][-1])
+axs[2].scatter(results["iteration"][-1],results["spikes"][-1])
 axs[2].set_ylabel("spikes/inf.")
 
 axs[-1].set_xlabel("epoch")
@@ -278,7 +276,8 @@ for title, xlims, savename in zip(
         fig, axs = plt.subplots(7, 1, sharex=True, figsize=(8, 14), gridspec_kw={"hspace": 0.4, "left": 0.2})
         fig.suptitle(title)
 
-        axs[0].plot(np.arange(xlims[0],xlims[1],1),objective_func(xlims[1]-xlims[0]).squeeze())
+        #axs[0].plot(np.arange(xlims[0],xlims[1],1),objective_func(xlims[1]-xlims[0]).squeeze())
+        plot_recordable(axs[0], events_mm_out, "target_signal", r"$y^*_k$" + "\n", xlims,overlay=True)
         axs[0].set_ylabel("x(t) \n")
         #plot_recordable(axs[0], events_mm_out, "target_signal", r"$y^*_k$" + "\n", xlims)
         #plot_spike_rate(axs[0], events_sr_in, r"$f(x)$" + "\n", xlims)
@@ -300,7 +299,8 @@ for title, xlims, savename in zip(
         if savename == 'after':
             mid = int(((model.n_iter_sim) * model.group_size - 0.5)* model.steps["sequence"])
             for i in range(7):
-                axs[i].axvline(mid,c='k',linewidth=0.5,linestyle='--')
+                axs[i].axvline(mid+4,c='k',linewidth=0.5,linestyle='--')
+                #axs[i].axvline(mid+23,c='k',linewidth=0.5,linestyle='--')
                 
         #plot_recordable(axs[7], events_mm_out, "readout_signal", r"$y_k$" + "\n", xlims,overlay=True)
         #plot_recordable(axs[8], events_mm_out, "readout_signal", r"$y_k$" + "\n", xlims)

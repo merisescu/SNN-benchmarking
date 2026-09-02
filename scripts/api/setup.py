@@ -733,7 +733,7 @@ class eprop_model(Trainer):
                     {
                         "amplitude_times": np.arange(0.0, self.group_size * self.duration["sequence"], self.duration["step"])
                         + iteration_offset
-                        + self.duration["total_offset"] + self.duration["delays"] + 1,
+                        + self.duration["total_offset"] + 1,
                         "amplitude_values": np.tile(x,self.group_size),
                     }
                     for x in function
@@ -766,6 +766,7 @@ class eprop_model(Trainer):
                         f = (f + self.duration['sequence'] * np.arange(self.group_size)[:, None]).ravel()
                         f = f + iteration_offset + offset + self.duration["total_offset"] + 1
                         params_gen_spk_in[self.dimension*2*m+2*n+i] = {"spike_times":f}
+                        #params_gen_spk_in[self.dimension*2*m+2*n+i] = {"spike_times":[]}
                         print(f)
 
         else:
