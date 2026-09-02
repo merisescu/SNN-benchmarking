@@ -12,9 +12,11 @@ func_max = 1.32
 lyapunov_time = 197
 resolution = lyapunov_time / 75
 n_timesteps = round(20 * lyapunov_time / resolution) # (20 * 75)
+#n_timesteps = 1500
 # keeping for clarity of calculation
 def objective_func(steps):
-    f = mackey_glass(steps).T
+    f = mackey_glass(steps+100).T
+    f = f[:,100:]
     #f = f[:,::10]
     f /= func_max
     return f
@@ -29,7 +31,7 @@ steps = {
 # neuron parameters
 eprop_isi_trace_cutoff = 300 # after this many steps after a spike, stops computing eligibility trace
 params_nrn_out = {
-    "tau_m": 10,
+    "tau_m": 5,
     "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
     "V_m": 0.,
     "E_L": 0.
@@ -37,14 +39,14 @@ params_nrn_out = {
 
 
 params_nrn_rec = {
-    "tau_m": 30,
+    "tau_m": 5,
     "c_reg": 10,
     "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
     "E_L": 0.,
     "V_m": 0.,
     "V_th": 0.5,
     "t_ref": 0.,
-    "kappa": 0.97,
+    "kappa": 0.95,
     "kappa_reg": 0.99,
     "surrogate_gradient_function": "piecewise_linear",  # surrogate gradient / pseudo-derivative function
     "surrogate_gradient_height": 1,  # height scaling of the pseudo-derivative
@@ -53,7 +55,7 @@ params_nrn_rec = {
     "adapt_beta": 0.3,
     "adapt_tau": 60,
 
-    "f_target": 0.01, # Hz
+    "f_target": 1, # Hz
 }
 
 
@@ -62,15 +64,15 @@ params_nrn_rec = {
 
 model = setup.eprop_model(mode='Regressor',num_threads=1,num_virtual_procs=4)
 model.timing(1,1,steps)
-model.input_layer(1,encoding='delta',channels=8)
-model.recurrent_layer(150,params_nrn_rec,adaptive=True)
+model.input_layer(1,encoding='delta',channels=6)
+model.recurrent_layer(300,params_nrn_rec,adaptive=True)
 model.output_layer(1,params_nrn_out)
 
 #%%
 model.recorders(profiling='full',save_to_disk=False)
 model.connect(sparsity=[0.8,0.8,0],eta_train=5e-3,optimizer='gradient_descent')
 weights_pre_train = model.compile()
-model.fit(function=objective_func,sens=0.1,n_iter_train=100,group_size=10,n_validations=1,testing=False,prune=False) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+model.fit(function=objective_func,sens=0.1,n_iter_train=200,group_size=1,n_validations=1,testing=True,prune=False) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
 
 #%%
 
@@ -160,17 +162,20 @@ for color, label in zip(colors, set(results_dict["label"])):
     axs[1].scatter(results_dict["iteration"][idc], 1-results_dict["error"][idc], label=label)
 '''
 
-axs[0].scatter(results["iteration"][-1],np.mean(results["loss"][-1:]),label='test')
-axs[1].scatter(results["iteration"][-1],np.mean(results["error"][-1:]),label='test')
+#axs[0].scatter(results["iteration"][-1],np.mean(results["loss"][-1:]),label='test')
+#axs[1].scatter(results["iteration"][-1],np.mean(results["error"][-1:]),label='test')
 axs[0].set_ylabel(r"$\mathcal{L} = \frac{1}{2} \sum_{t,k} \left( y_k^t -y_k^{*,t}\right)^2$")
+axs[1].axhline(0.01,c='k',linewidth=0.5,linestyle='--')
+axs[1].set_ylim([0.005,0.05])
 axs[1].set_ylabel(r"one-step prediction")
 
-spikes = np.zeros(len(results['spikes']))
+'''spikes = np.zeros(len(results['spikes']))
 
 for i in range(len(results['spikes'])-1):
     spikes[i+1] = results['spikes'][i+1]
-spikes = spikes
-axs[2].plot(results["iteration"],spikes)
+spikes = spikes'''
+axs[2].plot(results["iteration"][:-1],results["spikes"][:-1])
+#axs[2].scatter(results["iteration"][-1],results["spikes"][-1])
 axs[2].set_ylabel("spikes/inf.")
 
 axs[-1].set_xlabel("epoch")
@@ -184,6 +189,7 @@ fig.tight_layout()
 #%% spiking variables
 
 chosen = model.nrns_rec_record.get("global_id")
+nrns_in = model.nrns_in.get("global_id")
 
 def plot_recordable(ax, events, recordable, ylabel, xlims, overlay=False):
     for sender in np.unique(events["senders"]):
@@ -227,22 +233,56 @@ def plot_spike_rate(ax, events, ylabel, xlims):
     #margin = np.abs(np.max(senders_subset) - np.min(senders_subset)) * 0.1
     #ax.set_ylim(np.min(senders_subset) - margin, np.max(senders_subset) + margin)
 
+def plot_spike_delta(ax, events, ylabel, xlims):
+    idc_times = (events["times"] > xlims[0]) & (events["times"] < xlims[1])
+    times_subset = events["times"][idc_times]
+    senders_subset = events["senders"][idc_times]
+
+    tmp = np.column_stack([times_subset, senders_subset])
+    tmp = tmp[tmp[:, 0].argsort()]
+    tmp = tmp.T
+    times_subset = tmp[0]
+    senders_subset = tmp[1]
+
+    time = np.arange(xlims[0]+1,xlims[1]-1,1)
+    f = np.arange(xlims[0]+1,xlims[1]-1,1,dtype=np.float64)
+    f[0] = objective_func(1)[0][0]
+    pos = np.logspace(-2.3,-1.3,model.channels)
+    neg = -pos 
+    thresholds = np.empty(2*model.channels)
+    thresholds[0::2] = pos
+    thresholds[1::2] = neg
+    for t in range(len(f)-1):
+        activations = 0
+        t_ = np.argwhere(times_subset==time[t])
+        nrns = senders_subset[t_]
+        if len(nrns) > 0:
+            active = np.max(nrns)
+            for nrn, threshold in zip(nrns_in, thresholds):
+                if nrn == active:
+                    activations = threshold
+        f[t+1] = f[t] + activations
+    ax.plot(time, f)
+        
+
 for title, xlims, savename in zip(
     ["Dynamic variables before training", "Dynamic variables after training"],
     [
         (0, model.steps["sequence"]),
         #(0, 100),
-        #(model.steps["sequence"]*200-100, model.steps["sequence"]*200),
+        #(int(((model.n_iter_sim) * model.group_size - 0.55)* model.steps["sequence"]), int((model.n_iter_sim * model.group_size - 0.45) * model.steps["sequence"])),
         (((model.n_iter_sim) * model.group_size - 1)* model.steps["sequence"], model.n_iter_sim * model.group_size * model.steps["sequence"]),
     ],["before","after"]
 ):
     
-        fig, axs = plt.subplots(10, 1, sharex=True, figsize=(8, 14), gridspec_kw={"hspace": 0.4, "left": 0.2})
+        fig, axs = plt.subplots(7, 1, sharex=True, figsize=(8, 14), gridspec_kw={"hspace": 0.4, "left": 0.2})
         fig.suptitle(title)
 
         axs[0].plot(np.arange(xlims[0],xlims[1],1),objective_func(xlims[1]-xlims[0]).squeeze())
+        axs[0].set_ylabel("x(t) \n")
         #plot_recordable(axs[0], events_mm_out, "target_signal", r"$y^*_k$" + "\n", xlims)
         #plot_spike_rate(axs[0], events_sr_in, r"$f(x)$" + "\n", xlims)
+        plot_spike_delta(axs[0], events_sr_in, r"$f(x)$" + "\n", xlims)
 
         plot_spikes(axs[1], events_sr_in, r"$z_i$" + "\n", xlims)
         plot_spikes(axs[2], events_sr_rec, r"$z_j$" + "\n", xlims)
@@ -252,12 +292,19 @@ for title, xlims, savename in zip(
             plot_recordable(axs[3], events_mm_rec, "V_th_adapt", r"$v_j$" + "\n(mV)", xlims,overlay=True)
         #axs[2].set_ylim(0,15)
         plot_recordable(axs[4], events_mm_rec, "surrogate_gradient", r"$\psi_j$" + "\n", xlims)
-        plot_recordable(axs[5], events_mm_rec, "learning_signal", r"$L_j$" + "\n(pA)", xlims)
 
-        plot_recordable(axs[6], events_mm_out, "V_m", r"$v_k$" + "\n(mV)", xlims)
-        plot_recordable(axs[7], events_mm_out, "target_signal", r"$y^*_k$" + "\n", xlims)
-        plot_recordable(axs[8], events_mm_out, "readout_signal", r"$y_k$" + "\n", xlims)
-        plot_recordable(axs[9], events_mm_out, "error_signal", r"$y_k-y^*_k$" + "\n", xlims)
+        plot_recordable(axs[5], events_mm_out, "V_m", r"$v_k$" + "\n(mV)", xlims)
+        plot_recordable(axs[5], events_mm_out, "target_signal", r"$y^*_k$" + "\n", xlims,overlay=True)
+
+        plot_recordable(axs[6], events_mm_rec, "learning_signal", r"$L_j$" + "\n(pA)", xlims)
+        if savename == 'after':
+            mid = int(((model.n_iter_sim) * model.group_size - 0.5)* model.steps["sequence"])
+            for i in range(7):
+                axs[i].axvline(mid,c='k',linewidth=0.5,linestyle='--')
+                
+        #plot_recordable(axs[7], events_mm_out, "readout_signal", r"$y_k$" + "\n", xlims,overlay=True)
+        #plot_recordable(axs[8], events_mm_out, "readout_signal", r"$y_k$" + "\n", xlims)
+        #plot_recordable(axs[9], events_mm_out, "error_signal", r"$y_k-y^*_k$" + "\n", xlims)
 
         axs[-1].set_xlabel(r"$t$ (ms)")
         axs[-1].set_xlim(*xlims)

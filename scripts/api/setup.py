@@ -18,9 +18,12 @@ class Trainer:
             "spikes": [],
             "loss": [],
             "iteration": [],
+            "label": []
         }
         if self.mode=='Classifier':
-            self.results_dict.update({"auc": [],"label": []})
+            self.results_dict.update({"auc": []})
+        if self.mode=='Regressor':
+            self.results_dict.update({"smape": []})
         self.events = {}
         self.n_iter_sim = 0
         self.phase_label_previous = ""
@@ -73,7 +76,6 @@ class Trainer:
                 accuracy = np.mean((y_target == y_prediction), axis=1)
                 errors = 1.0 - accuracy
                 self.results_dict["auc"].extend(auc)
-                self.results_dict["label"].append(self.phase_label_previous)
             if self.mode=='Regressor':
                 # sMAPE
                 y_prediction = readout_signal
@@ -96,10 +98,68 @@ class Trainer:
             self.results_dict["spikes"].extend(spikes)
             self.results_dict["loss"].extend(loss)
 
+            self.results_dict["label"].append(self.phase_label_previous)
+
             self.error = errors[0]
 
             if self.n_iter_sim >= 10 and errors > 0.7 and self.prune==True:
                 self.pruned=True
+
+    def evaluate_autoregression(self):
+        if not self.save_to_disk:
+            events_mm_out = self.mm_out.get("events")
+            
+            readout_signal = events_mm_out["readout_signal"]
+            target_signal = events_mm_out["target_signal"]
+            senders = events_mm_out["senders"]
+            times = events_mm_out["times"]
+
+            cond1 = times > (self.n_iter_sim - 1) * self.group_size * self.duration["sequence"] + self.duration["total_offset"]
+            cond2 = times <= self.n_iter_sim * self.group_size * self.duration["sequence"] + self.duration["total_offset"]
+            rel_time = times % self.duration["sequence"] 
+            cond3 = rel_time > self.duration["sequence"]/2
+            idc = cond1 & cond2
+            idc = cond1 & cond2 & cond3
+            #print(np.argwhere(idc==True))
+            #print(np.argwhere(idc==True))
+
+            times = round(self.steps["sequence"] / 2 - 1) # should be the same length as above
+
+            readout_signal = np.array([readout_signal[idc][senders[idc] == i] for i in np.unique(senders)])
+            target_signal = np.array([target_signal[idc][senders[idc] == i] for i in np.unique(senders)])
+
+            readout_signal = readout_signal.reshape((self.out_shape, 1, self.group_size, times))
+            target_signal = target_signal.reshape((self.out_shape, 1, self.group_size, times))
+
+            readout_signal = readout_signal[:, :, :, -self.steps["learning_window"] :]
+            target_signal = target_signal[:, :, :, -self.steps["learning_window"] :]
+
+            loss = 0.5 * np.mean(np.sum((readout_signal - target_signal) ** 2, axis=3), axis=(0, 2))
+
+            y_prediction = readout_signal
+            y_target = target_signal
+            num = np.abs(y_prediction-y_target)
+            denom = np.abs(y_prediction)+np.abs(y_target)
+            smape = num/denom
+            # regular smape for 1 axis
+            # if multi dimensional function will average over all dimensions
+            errors = 2*np.mean(smape,axis=(0,2,3))
+
+            self.results_dict["smape"].extend(errors)
+
+            spikes = [self.sr_rec.n_events/self.group_size]
+            # does not count spikes from the spike generator, this can be found either from self.sr_in.n_events
+            # or take it from the data loader
+            print(spikes)
+            print(errors)
+            self.results_dict["iteration"].append(self.n_iter_sim)
+            self.results_dict["error"].extend(errors)
+            self.results_dict["spikes"].extend(spikes)
+            self.results_dict["loss"].extend(loss)
+            self.results_dict["label"].append(self.phase_label_previous)
+
+            self.error = errors[0]
+
 
     def run_phase(self,phase_label,eta,loader=None):
         
@@ -159,6 +219,9 @@ class Trainer:
             self.run_autoregression_test()
 
     def run_autoregression_test(self):
+        self.params_common_syn_eprop["optimizer"]["eta"] = 0
+        nest.SetDefaults("eprop_synapse", self.params_common_syn_eprop)
+
         params_gen_spk_in, params_gen_rate_target, params_gen_learning_window = self.regressor_coding()
 
         self.gen_spk_in.set(params_gen_spk_in)
@@ -168,17 +231,40 @@ class Trainer:
         self.simulate("total_offset")
         self.simulate("extension_sim")
 
+        self.evaluate()
+        if self.profiling=='full':
+            self.get_events()
+        if not self.save_to_disk:
+            nest.SetStatus(self.recorders, {'n_events': 0})
+
         for group in range(self.group_size):
             # load regression history using 1-step forecast
-            nest.Simulate(self.duration["sequence"]/2)
+            offset = self.duration["sequence"]/2
+            nest.Simulate(offset)
 
             # pull data from output to use as new input
             # temporary workaround for lack of way to do this in NEST
             # to my knowledge
-            for _ in self.steps['sequence']:
-                NotImplemented
+            for _ in range(self.steps['sequence']):
+                events_mm_out = self.mm_out.get("events")
+                readout_signal = events_mm_out["readout_signal"]
+                senders = events_mm_out["senders"]
+                readout_signal = np.array([readout_signal[-2:][senders[-2:] == i] for i in np.unique(senders)])
 
+                params_gen_spk_in = self.autoregressor_coding(readout_signal,offset)
+                self.gen_spk_in.set(params_gen_spk_in)
+                nest.Simulate(self.duration["step"])
+                offset += 1
 
+        self.n_iter_sim += 1
+        self.phase_label_previous = 'test'
+
+        self.evaluate_autoregression()
+        if self.profiling=='full':
+            self.get_events()
+
+        return
+    
 
     def fit(self,batch_loader=None,function=None,sens=0.5,n_iter_train=200,group_size=100,n_validations=10,testing=False,early_stop=True,prune=False):
         self.recorders = nest.GetNodes(properties={"element_type": "recorder"})
@@ -647,7 +733,7 @@ class eprop_model(Trainer):
                     {
                         "amplitude_times": np.arange(0.0, self.group_size * self.duration["sequence"], self.duration["step"])
                         + iteration_offset
-                        + self.duration["total_offset"]+5,
+                        + self.duration["total_offset"] + self.duration["delays"] + 1,
                         "amplitude_values": np.tile(x,self.group_size),
                     }
                     for x in function
@@ -662,3 +748,27 @@ class eprop_model(Trainer):
         print("encoding time: ", stop-start)
 
         return params_gen_spk_in, params_gen_rate_target, params_gen_learning_window
+
+    def autoregressor_coding(self,input,offset):
+        function = [x for x in input]
+        print(function)
+        if self.encoding == 'delta':
+            params_gen_spk_in = [[] for _ in range(self.in_shape)]
+            iteration_offset = self.n_iter_sim * self.group_size * self.duration["sequence"] 
+            thresholds = np.logspace(-2.3,-1.3,self.channels)
+            for m, threshold in enumerate(thresholds):
+                for x, n in zip(function, range(len(function))):
+                    x = Tensor(x)
+                    for i, x in enumerate([x,-x]):
+                        f = delta(x,threshold=threshold,padding=True)
+                        f = f.numpy()
+                        f = np.argwhere(f == 1).T
+                        f = (f + self.duration['sequence'] * np.arange(self.group_size)[:, None]).ravel()
+                        f = f + iteration_offset + offset + self.duration["total_offset"] + 1
+                        params_gen_spk_in[self.dimension*2*m+2*n+i] = {"spike_times":f}
+                        print(f)
+
+        else:
+            return NotImplemented
+
+        return params_gen_spk_in
