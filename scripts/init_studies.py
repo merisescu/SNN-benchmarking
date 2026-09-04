@@ -27,7 +27,7 @@ if __name__ == "__main__":
     study = optuna.create_study(
                 directions=['minimize','maximize'],
                 sampler=optuna.samplers.TPESampler(constant_liar=True),
-                study_name="MG_LIF",
+                study_name="MG_LIF_dt",
                 storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{lif_db}",
                 load_if_exists=True,
             )
@@ -35,7 +35,7 @@ if __name__ == "__main__":
     study = optuna.create_study(
                 directions=['minimize','maximize'],
                 sampler=optuna.samplers.TPESampler(constant_liar=True),
-                study_name="MG_ALIF_v2",
+                study_name="MG_ALIF_dt",
                 storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{lif_db}",
                 load_if_exists=True,
             )

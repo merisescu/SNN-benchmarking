@@ -146,7 +146,7 @@ optuna.visualization.plot_slice(mg_alif, params=['tau_m_rec','tau_m_out','V_th',
 
 studies = [mg_lif,mg_alif]
 titles = ["LIF","ALIF"]
-
-pareto_plot(studies,titles,'Spikes per $L$','One-step error',savetitle="mg_pareto_fronts",bounds=[0,760,0,0.12],xscale=1/20,use_error=True) # scale from one sequence (20L) to (L)
+n_L = 1500/197
+pareto_plot(studies,titles,'Spikes per $L$','One-step error',savetitle="mg_pareto_fronts",bounds=[0,1780,0,0.12],xscale=1/n_L,use_error=True) # scale from one sequence (20L) to (L)
 
 # %%

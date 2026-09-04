@@ -19,12 +19,12 @@ resolution = lyapunov_time / 75
 n_timesteps = round(20 * lyapunov_time / resolution) # (20 * 75)
 #n_timesteps = 3000
 # keeping for clarity of calculation
-def mg_func(steps):
+'''def mg_func(steps):
     f = mackey_glass(steps).T
     f /= func_max
-    return f
+    return f'''
 
-'''def mackey_glass(
+def mackey_glass(
     n_timesteps = None,
     duration=20 * lyapunov_time,
     dt=resolution,
@@ -56,7 +56,7 @@ def mg_func(steps):
     return x[delay_steps+1:]/func_max
 
 def mg_func(steps):
-    return [mackey_glass(n_timesteps=steps,dt=resolution)]'''
+    return [mackey_glass(n_timesteps=steps,dt=resolution)]
 
 #%%
 
@@ -134,7 +134,7 @@ def objective(trial):
 
 if __name__ == "__main__":
     study = optuna.load_study(
-        study_name="MG_ALIF",
+        study_name="MG_ALIF_dt",
         storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{db}",
     )
     study.optimize(objective, n_trials=None)
