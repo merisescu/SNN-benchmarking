@@ -6,6 +6,8 @@ examples/
 .venv/
 figures/
 data/
+nest-src/
+nest-build/
 __pycache__/
 .env
 NMNIST_pixels_blocklist.txt

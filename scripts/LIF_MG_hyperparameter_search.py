@@ -97,7 +97,7 @@ def objective(trial):
 
 if __name__ == "__main__":
     study = optuna.load_study(
-        study_name="MG_LIF_v2",
+        study_name="MG_LIF_dt",
         storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{db}",
     )
     study.optimize(objective, n_trials=None)

@@ -15,4 +15,7 @@ RUN curl -sS https://starship.rs/install.sh | sh -s -- --yes \
     && echo '[[ -f ~/.bashrc ]] && source ~/.bashrc' >> /root/.bash_profile \
     && echo 'export PATH="$HOME/.opencode/bin:$PATH"' >> /root/.bashrc
 
+ENV NEST_INSTALL_DIR=/usr/local
+ENV PYTHONPATH=${NEST_INSTALL_DIR}/lib/python3.14/site-packages
+
 WORKDIR /workspace

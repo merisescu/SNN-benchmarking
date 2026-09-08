@@ -1,7 +1,7 @@
 #%% imports
 import numpy as np
 import scripts.api.setup as setup
-from reservoirpy.datasets import mackey_glass
+#from reservoirpy.datasets import mackey_glass
 
 
 #%% func definition
@@ -10,9 +10,10 @@ from reservoirpy.datasets import mackey_glass
 func_max = 1.32
 # with standard parameters
 lyapunov_time = 197
-resolution = 0.1 * lyapunov_time / 75
-n_timesteps = round( 20 * lyapunov_time / resolution) # (20 * 75)
-#n_timesteps = 3000
+#resolution = (lyapunov_time / 75) / 10
+resolution = 1
+#n_timesteps = round( 20 * lyapunov_time / resolution) # (20 * 75)
+n_timesteps = 1500
 # keeping for clarity of calculation
 '''def objective_func(steps):
     f = mackey_glass(steps).T
@@ -42,16 +43,13 @@ def mackey_glass(
     for t in range(delay_steps, n_steps + delay_steps):
         delayed = x[t - delay_steps]
 
-        dx = (
-            beta * delayed / (1.0 + delayed**n)
-            - gamma * x[t]
-        )
+        dx = beta * delayed / (1.0 + delayed**n) - gamma * x[t]
 
         x[t + 1] = x[t] + dt * dx
     return x[delay_steps+1:]/func_max
 
 def objective_func(steps):
-    return [mackey_glass(n_timesteps=steps,dt=0.1*resolution)]
+    return [mackey_glass(n_timesteps=steps,dt=resolution)]
 #%% set parameters
 
 # simulation parameters
@@ -60,7 +58,7 @@ steps = {
 }
 
 # neuron parameters
-eprop_isi_trace_cutoff = 300 # after this many steps after a spike, stops computing eligibility trace
+eprop_isi_trace_cutoff = n_timesteps # after this many steps after a spike, stops computing eligibility trace
 params_nrn_out = {
     "tau_m": 24.5,
     "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
@@ -69,7 +67,7 @@ params_nrn_out = {
 }
 
 
-params_nrn_rec = {
+'''params_nrn_rec = {
     "tau_m": 142,
     "c_reg": 3.3,
     "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
@@ -87,6 +85,41 @@ params_nrn_rec = {
     "adapt_tau": 156,
 
     "f_target": 1.8, # Hz
+}'''
+
+#izhikevich
+'''params_nrn_rec = {
+    "c_reg": 30,
+    "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
+    "V_th": 30,
+    "kappa": 0.99,
+    "kappa_reg": 0.97,
+    "surrogate_gradient_function": "fast_sigmoid_derivative",  # surrogate gradient / pseudo-derivative function
+    "surrogate_gradient_height": 1,  # height scaling of the pseudo-derivative
+    "surrogate_gradient_width": 0.5,  # width scaling of the pseudo-derivative
+
+    "f_target": 1, # Hz
+}'''
+a = 0.1
+b = 0.25
+v_m = np.min(np.roots([0.04,5-b,140]))
+u_m = b * v_m
+
+params_nrn_rec = {
+    "a": a,
+    "b": b,
+    "V_m": v_m,
+    "U_m": u_m,
+    "c_reg": 30,
+    "eprop_isi_trace_cutoff": eprop_isi_trace_cutoff,
+    "V_th": 30,
+    "kappa": 0.97,
+    "kappa_reg": 0.97,
+    "surrogate_gradient_function": "piecewise_linear",  # surrogate gradient / pseudo-derivative function
+    "surrogate_gradient_height": 0.5,  # height scaling of the pseudo-derivative
+    "surrogate_gradient_width": 1/1.7,  # width scaling of the pseudo-derivative
+
+    "f_target": 1, # Hz
 }
 
 
@@ -95,15 +128,19 @@ params_nrn_rec = {
 
 model = setup.eprop_model(mode='Regressor',num_threads=1,num_virtual_procs=4)
 model.timing(1,1,steps)
-model.input_layer(1,encoding='delta',channels=16)
-model.recurrent_layer(175,params_nrn_rec,adaptive=True)
+model.input_layer(1,encoding='delta',channels=14)
+model.recurrent_layer(175,params_nrn_rec,use_izhikevich=True,scale=22)
 model.output_layer(1,params_nrn_out)
 
 #%%
 model.recorders(profiling='full',save_to_disk=False)
-model.connect(sparsity=[0.75,0.75,0],eta_train=5e-3,optimizer='gradient_descent')
+model.connect(sparsity=[0.8,0.8,0],eta_train=5e-3,optimizer='gradient_descent')
 weights_pre_train = model.compile()
-model.fit(function=objective_func,sens=0.1,n_iter_train=500,group_size=1,n_validations=1,testing=True,prune=False) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+model.fit(function=objective_func,n_iter_train=200,group_size=1,n_validations=1,testing=True,prune=False) # n_iter_train = number of training iterations if not using early_stop, group size = how many items to run in sequence per training phase
+
+#%% debug
+
+print(model.fmin, model.fmax)
 
 #%%
 
@@ -197,7 +234,7 @@ axs[0].scatter(results["iteration"][-1],np.mean(results["loss"][-1:]),label='tes
 axs[1].scatter(results["iteration"][-1],np.mean(results["error"][-1:]),label='test')
 axs[0].set_ylabel(r"$\mathcal{L} = \frac{1}{2} \sum_{t,k} \left( y_k^t -y_k^{*,t}\right)^2$")
 axs[1].axhline(0.01,c='k',linewidth=0.5,linestyle='--')
-axs[1].set_ylim([0.005,0.05])
+axs[1].set_ylim([0.005,0.1])
 axs[1].set_ylabel(r"one-step prediction")
 
 '''spikes = np.zeros(len(results['spikes']))
@@ -278,7 +315,7 @@ def plot_spike_delta(ax, events, ylabel, xlims):
     time = np.arange(xlims[0]+1,xlims[1]-1,1)
     f = np.arange(xlims[0]+1,xlims[1]-1,1,dtype=np.float64)
     f[0] = objective_func(1)[0][0]
-    pos = np.logspace(-2.3,-1.3,model.channels)
+    pos = np.logspace(np.log10(model.fmin),np.log10(model.fmax),model.channels)
     neg = -pos 
     thresholds = np.empty(2*model.channels)
     thresholds[0::2] = pos

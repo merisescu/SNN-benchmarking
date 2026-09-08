@@ -125,7 +125,7 @@ pareto_plot(studies,titles,"Spikes per inference","Classification accuracy",save
 #%% LIF Function regression
 mg_lif = optuna.load_study(study_name="MG_LIF",storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{db}")
 
-optuna.visualization.plot_pareto_front(mg_lif,target_names=['spikes','accuracy'],bounds=[])
+optuna.visualization.plot_pareto_front(mg_lif,target_names=['spikes','accuracy'])
 
 #%%
 optuna.visualization.plot_hypervolume_history(mg_lif,[150000,0.9])
@@ -142,10 +142,24 @@ optuna.visualization.plot_hypervolume_history(mg_alif,[150000,0.9])
 optuna.visualization.plot_slice(mg_alif, params=['tau_m_rec','tau_m_out','V_th','t_ref','f_target','kappa','kappa_reg','c_reg','adapt_beta','adapt_tau','in_channels','recurrent_neurons'], target=lambda t: t.values[1],target_name="accuracy")
 # %%
 optuna.visualization.plot_slice(mg_alif, params=['tau_m_rec','tau_m_out','V_th','t_ref','f_target','kappa','kappa_reg','c_reg','adapt_beta','adapt_tau','in_channels','recurrent_neurons'], target=lambda t: t.values[0],target_name="spikes")
+
+#%% Izhikevich Function regression
+mg_izh = optuna.load_study(study_name="MG_Izh",storage=f"postgresql://{user}:{pwd}@pynest-sql:5432/{db}")
+
+optuna.visualization.plot_pareto_front(mg_izh,target_names=['spikes','accuracy'])
+
+#%%
+optuna.visualization.plot_hypervolume_history(mg_izh,[150000,0.9])
+
+#%%
+optuna.visualization.plot_slice(mg_izh, params=["a","b","c","d","c_reg","kappa","kappa_reg","tau_m_out","in_channels"], target=lambda t: t.values[1],target_name="accuracy")
+# %%
+optuna.visualization.plot_slice(mg_izh, params=["a","b","c","d"], target=lambda t: t.values[0],target_name="spikes")
+
 # %%
 
-studies = [mg_lif,mg_alif]
-titles = ["LIF","ALIF"]
+studies = [mg_lif,mg_alif,mg_izh]
+titles = ["LIF","ALIF","Izhikevich"]
 n_L = 1500/197
 pareto_plot(studies,titles,'Spikes per $L$','One-step error',savetitle="mg_pareto_fronts",bounds=[0,1780,0,0.12],xscale=1/n_L,use_error=True) # scale from one sequence (20L) to (L)
 

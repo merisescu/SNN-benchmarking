@@ -241,17 +241,29 @@ class Trainer:
             # load regression history using 1-step forecast
             offset = self.duration["sequence"]/2
             nest.Simulate(offset)
-
+            events_mm_out = self.mm_out.get("events")
+            readout_signal = events_mm_out["readout_signal"]
+            senders = events_mm_out["senders"]
+            readout_signal = np.array([readout_signal[-100:][senders[-100:] == i] for i in np.unique(senders)])
+            y_bar = np.zeros(int(self.steps["sequence"]/2)+100)
+            y_bar[0] = readout_signal[0][-100]
+            for i in np.arange(1,100,1,dtype=np.int16):
+                y_bar[i] = self.lpf * y_bar[i-1] + (1 - self.lpf) * readout_signal[0][-100+i]
+                print('yb ', i, y_bar[i])
             # pull data from output to use as new input
             # temporary workaround for lack of way to do this in NEST
             # to my knowledge
-            for _ in range(self.steps['sequence']):
+            for i in range(int(self.steps['sequence']/2)):
                 events_mm_out = self.mm_out.get("events")
                 readout_signal = events_mm_out["readout_signal"]
                 senders = events_mm_out["senders"]
-                readout_signal = np.array([readout_signal[-2:][senders[-2:] == i] for i in np.unique(senders)])
+                readout_signal = np.array([readout_signal[-1][senders[-1] == i] for i in np.unique(senders)])
+                print('rs0-1 ',readout_signal[0][-1])
 
-                params_gen_spk_in = self.autoregressor_coding(readout_signal,offset)
+                y_bar[100+i] = self.lpf * y_bar[99+i] + (1 - self.lpf) * readout_signal[0][-1]
+                print('yb ',100+i, y_bar[100+i])
+
+                params_gen_spk_in = self.autoregressor_coding([y_bar[99+i:101+i]],offset)
                 self.gen_spk_in.set(params_gen_spk_in)
                 nest.Simulate(self.duration["step"])
                 offset += 1
@@ -266,7 +278,7 @@ class Trainer:
         return
     
 
-    def fit(self,batch_loader=None,function=None,sens=0.5,n_iter_train=200,group_size=100,n_validations=10,testing=False,early_stop=True,prune=False):
+    def fit(self,batch_loader=None,function=None,sens=0.5,lpf=0,n_iter_train=200,group_size=100,n_validations=10,testing=False,early_stop=True,prune=False):
         self.recorders = nest.GetNodes(properties={"element_type": "recorder"})
         self.group_size = group_size
         if self.mode == 'Classifier':
@@ -274,7 +286,11 @@ class Trainer:
             self.batch_loader.group_size = group_size
         if self.mode == 'Regressor':
             self.target = function(self.steps['sequence'])
+            fdiff = np.abs(np.diff(self.target))
+            self.fmax = np.percentile(fdiff,95)
+            self.fmin = np.percentile(fdiff,5)
             self.sens = sens
+            self.lpf = lpf
         self.n_iter_train = n_iter_train
         self.testing = testing
         self.early_stop = early_stop
@@ -395,11 +411,10 @@ class eprop_model(Trainer):
         self.gen_rate_target = nest.Create("step_rate_generator", self.out_shape)
         self.gen_learning_window = nest.Create("step_rate_generator")
 
-    def recurrent_layer(self,n_rec,params,adaptive=False,hard_reset=False,use_izhikevich=False):
+    def recurrent_layer(self,n_rec,params,adaptive=False,hard_reset=False,use_izhikevich=False,scale=1):
         self.rec_shape = n_rec
         self.adaptive = adaptive
-        #self.voltage_scale = (params['V_th']-params['E_L'])/0.6
-        self.voltage_scale = 1
+        self.voltage_scale = scale
         reset = ''
         adapt = ''
         if not use_izhikevich:
@@ -546,8 +561,8 @@ class eprop_model(Trainer):
                 "batch_size": 1, # probably leave this at 1, this just witholds updates, doesnt actually parallelise anything
                 "optimize_each_step": False,  # call optimizer every time step (True) or once per spike (False); both
                 # yield same results for gradient descent, False offers speed-up
-                "Wmin": -100,  # pA, minimal limit of the synaptic weights
-                "Wmax": 100,  # pA, maximal limit of the synaptic weights
+                "Wmin": -10000,  # pA, minimal limit of the synaptic weights
+                "Wmax": 10000,  # pA, maximal limit of the synaptic weights
             },
         }
 
@@ -716,8 +731,11 @@ class eprop_model(Trainer):
                             ]
 
         elif self.encoding == 'delta':
+            fmin = np.log10(self.fmin)
+            fmax = np.log10(self.fmax)
             params_gen_spk_in = [[] for _ in range(self.in_shape)]
-            thresholds = np.logspace(-2.3,-1.3,self.channels)
+            thresholds = np.logspace(fmin,fmax,self.channels)
+            #thresholds = np.linspace(self.fmin,self.fmax,self.channels)
             for m, threshold in enumerate(thresholds):
                 for x, n in zip(function, range(len(function))):
                     x = Tensor(x)
@@ -753,9 +771,12 @@ class eprop_model(Trainer):
         function = [x for x in input]
         print(function)
         if self.encoding == 'delta':
+            fmin = np.log10(self.fmin)
+            fmax = np.log10(self.fmax)
             params_gen_spk_in = [[] for _ in range(self.in_shape)]
             iteration_offset = self.n_iter_sim * self.group_size * self.duration["sequence"] 
-            thresholds = np.logspace(-2.3,-1.3,self.channels)
+            thresholds = np.logspace(fmin,fmax,self.channels)
+            #thresholds = np.linspace(self.fmin,self.fmax,self.channels)
             for m, threshold in enumerate(thresholds):
                 for x, n in zip(function, range(len(function))):
                     x = Tensor(x)
@@ -767,7 +788,7 @@ class eprop_model(Trainer):
                         f = f + iteration_offset + offset + self.duration["total_offset"] + 1
                         params_gen_spk_in[self.dimension*2*m+2*n+i] = {"spike_times":f}
                         #params_gen_spk_in[self.dimension*2*m+2*n+i] = {"spike_times":[]}
-                        print(f)
+                        #print(f)
 
         else:
             return NotImplemented
