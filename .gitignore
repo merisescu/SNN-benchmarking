@@ -10,5 +10,6 @@ nest-src/
 nest-build/
 __pycache__/
 .env
+make_my_ext.log
 NMNIST_pixels_blocklist.txt
 RNN_eprop.ipynb

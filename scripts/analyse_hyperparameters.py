@@ -1,6 +1,7 @@
 #%% imports
 
 import optuna
+from optuna._hypervolume import compute_hypervolume
 import optunahub
 import os
 import numpy as np
@@ -23,9 +24,28 @@ db = os.environ['POSTGRES_DB']
 data_dir = "./data/"
 plots_dir = "./figures/"
 
-#%% plot functions
+#%% functions
 
-def pareto_plot(studies,titles,xlabel,ylabel,savetitle,bounds=[0,1000,0,1],xscale=1,use_error=False):
+def get_hypervolume(study,bounds):
+    # fix for maximisation goal
+    signs = np.asarray([
+    1 if d == optuna.study.StudyDirection.MINIMIZE else -1
+    for d in study.directions
+    ])
+    pareto_front = np.array([
+    trial.values
+    for trial in study.best_trials
+    ])
+    pareto_front = pareto_front * signs
+    bounds_ = bounds * signs
+    idxs = np.all(pareto_front < bounds_, axis = 1)
+    pareto_front = pareto_front[idxs]
+
+    V = compute_hypervolume(pareto_front,np.array(bounds_))
+    print(V)
+    return V
+
+def pareto_plot(studies,titles,xlabel,ylabel,savetitle,bounds=[0,1000,0,1],hypervolume_bounds=[2000,0.8],xscale=1,use_error=False):
     optimal_dfs = {}
     trials_dfs = {}
 
@@ -65,8 +85,16 @@ def pareto_plot(studies,titles,xlabel,ylabel,savetitle,bounds=[0,1000,0,1],xscal
             ymin_ = np.min([ymin,optimal_dfs[study_name].min(axis=0)['accuracy']])
             ymax_ = np.max([ymax,optimal_dfs[study_name].max(axis=0)['accuracy']])
 
-    optimal_df = pd.concat([study for study in reversed(optimal_dfs.values())])
-    trials_df = pd.concat([study for study in reversed(trials_dfs.values())])
+    hvs = []
+    for study in studies:
+        hvs.append(get_hypervolume(study,hypervolume_bounds))
+    df_order = np.argsort(hvs)[::-1]
+
+    #optimal_df = pd.concat([study for study in reversed(optimal_dfs.values())])
+    #trials_df = pd.concat([study for study in reversed(trials_dfs.values())])
+
+    optimal_df = pd.concat([optimal_dfs[titles[i]] for i in df_order])
+    trials_df = pd.concat([trials_dfs[titles[i]] for i in df_order])
 
     trials_df = trials_df[trials_df['spikes']< xmax]
     if use_error:
@@ -152,15 +180,15 @@ optuna.visualization.plot_pareto_front(mg_izh,target_names=['spikes','accuracy']
 optuna.visualization.plot_hypervolume_history(mg_izh,[150000,0.9])
 
 #%%
-optuna.visualization.plot_slice(mg_izh, params=["a","b","c","d","c_reg","kappa","kappa_reg","tau_m_out","in_channels"], target=lambda t: t.values[1],target_name="accuracy")
+optuna.visualization.plot_slice(mg_izh, params=["a","b","c","d","c_reg","kappa","kappa_reg","tau_m_out","in_channels","recurrent_neurons"], target=lambda t: t.values[1],target_name="accuracy")
 # %%
-optuna.visualization.plot_slice(mg_izh, params=["a","b","c","d"], target=lambda t: t.values[0],target_name="spikes")
+optuna.visualization.plot_slice(mg_izh, params=["a","b","c","d","c_reg","kappa","kappa_reg","tau_m_out","in_channels","recurrent_neurons"], target=lambda t: t.values[0],target_name="spikes")
 
 # %%
 
 studies = [mg_lif,mg_alif,mg_izh]
 titles = ["LIF","ALIF","Izhikevich"]
 n_L = 1500/197
-pareto_plot(studies,titles,'Spikes per $L$','One-step error',savetitle="mg_pareto_fronts",bounds=[0,1780,0,0.12],xscale=1/n_L,use_error=True) # scale from one sequence (20L) to (L)
+pareto_plot(studies,titles,'Spikes per $L$','One-step error',savetitle="mg_pareto_fronts",bounds=[0,1780,0,0.12],hypervolume_bounds=[150000,0.9],xscale=1/n_L,use_error=True) # scale from one sequence (20L) to (L)
 
 # %%
