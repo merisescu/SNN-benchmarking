@@ -1,0 +1,28 @@
+services:
+  pynest-dev:
+    build: ./nest
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./:/workspace
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    command: >
+      sh -c "
+        uv sync &&
+        sleep infinity
+      "
+    environment:
+      - PYTHONUNBUFFERED=1
+    env_file:
+      - .env
+  pynest-sql:
+    build: ./sql
+    volumes:
+      - nest-rdb:/var/lib/postgresql
+    env_file:
+      - .env
+    tty: true
+volumes:
+  nest-rdb:

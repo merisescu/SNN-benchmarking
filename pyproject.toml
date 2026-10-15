@@ -10,18 +10,30 @@ requires-python = ">=3.14"
 dependencies = [
     "cnsplots>=0.4.0",
     "matplotlib>=3.11.1",
+    "nbformat>=5.11.1",
     "nest-simulator>=3.10.0",
     "numpy==2.4.6",
+    "optuna>=4.9.0",
+    "optunahub>=0.4.1",
+    "plotly>=6.9.0",
+    "psycopg2-binary>=2.9.12",
+    "reservoirpy>=0.4.2",
+    "snntorch>=1.0.0",
     "tonic>=1.6.0",
+    "torch>=2.14.0",
 ]
 
 [tool.uv]
 override-dependencies = [
     "numpy==2.4.6",
 ]
+package = false
 
 [project.scripts]
 workspace = "workspace:main"
+
+[[tool.uv.index]]
+url = "https://download.pytorch.org/whl/cpu"
 
 [build-system]
 requires = ["uv_build>=0.12.0,<0.13.0"]

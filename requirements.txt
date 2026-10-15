@@ -1,0 +1,9 @@
+optuna
+optunahub
+plotly
+nbformat
+matplotlib
+cnsplots
+psycopg2-binary
+snntorch
+torch

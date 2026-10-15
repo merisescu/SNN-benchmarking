@@ -4,7 +4,7 @@ show_plots = True
 print_time = False # set False if running in notebook bc it already does this
 data_dir = "./data/"
 plots_dir = "./figures/"
-recording = False # for time recording
+recording = True # for time recording
 
 
 threads = 16
@@ -20,7 +20,7 @@ n_record = 1  # number of neurons to record dynamic variables from - this script
 n_record_w = 5  # number of senders and targets to record weights from - this script requires n_record_w >=1
 
 batch_size = 100 # number of items to train on per training/validation iteration
-n_iter_train = 200 # number of training iterations, 200 for convergence
+n_iter_train = 5 # number of training iterations, 200 for convergence
 n_iter_test = 2  # number of iterations for final test
 do_early_stopping = False  # if True, stop training as soon as stop criterion fulfilled
 n_iter_validate_every = 10  # number of training iterations before validation
@@ -214,7 +214,7 @@ duration.update({key: value * duration["step"] for key, value in steps.items()})
 params_setup = {
     "print_time": print_time,  # if True, print time progress bar during simulation, set False if run as code cell
     "resolution": duration["step"],
-    "total_num_virtual_procs": 4,  # number of virtual processes, set in case of distributed computing
+    "total_num_virtual_procs": 6,  # number of virtual processes, set in case of distributed computing
 }
 
 nest.ResetKernel()
@@ -248,9 +248,7 @@ params_nrn_rec = {
     "E_L": V_m,
     "eprop_isi_trace_cutoff": 100,
     "f_target": f_target,  # spikes/s, target firing rate for firing rate regularization
-    "flush_event_send_interval": duration[
-        "time_per_trial"
-    ],  # ms, inactivity period before flushing outgoing synapses to free memory
+    "flush_event_send_interval": duration["time_per_trial"],  # ms, inactivity period before flushing outgoing synapses to free memory
     "I_e": 0.0, # (not used)
     "kappa": 0.99,  # low-pass filter of the eligibility trace
     "kappa_reg": 0.99,  # low-pass filter of the firing rate for regularization
@@ -544,14 +542,11 @@ class TrainingPipeline:
             data, label = dataset[idx]
             labels_group.extend([label])
             data["t"] = np.around(data["t"] * time_per_trial / t_max)
-            '''
+            
             for px in range(n_in):
                 mask = np.isin(data[['x','y','p']],active_pixels[px])
                 relative_times = data[mask]["t"]
-                images_group[item].extend([relative_times])'''
-            mask = np.zeros(34*34*2,dtype=bool)
-            mask[active_pixels["y"]*34*2+active_pixels["x"]] = True
-            images_group[item] = data[mask]['t']
+                images_group[item].extend([relative_times])
 
         return images_group, labels_group
 
@@ -570,7 +565,7 @@ class TrainingPipeline:
 
             readout_signal = np.array([readout_signal[idc][senders[idc] == i] for i in np.unique(senders)])
             target_signal = np.array([target_signal[idc][senders[idc] == i] for i in np.unique(senders)])
-
+            print(target_signal.shape)
             readout_signal = readout_signal.reshape((n_out, 1, batch_size, steps["time_per_trial"]))
             target_signal = target_signal.reshape((n_out, 1, batch_size, steps["time_per_trial"]))
 
@@ -644,7 +639,8 @@ class TrainingPipeline:
 
     def run_test(self):
         for _ in range(n_iter_test):
-            self.run_phase("test", eta_test)
+            images, labels = self.get_batch(test_dataset, test_idx)
+            self.run_phase("test", eta_test, images, labels)
 
     def simulate(self, k):
         nest.Simulate(duration[k])
@@ -693,6 +689,11 @@ n_iter_sim = training_pipeline.n_iter_sim
 
 timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
 
+#%%
+
+events_mm_out = mm_out.get('events')
+print(events_mm_out)
+
 #%% Record post training data
 
 weights_post_train = {
@@ -702,7 +703,7 @@ weights_post_train = {
 }
 
 os.makedirs(f"{data_dir}{timestamp}", exist_ok=True)
-
+'''
 #TODO: saving all parameters and results!
 events_mm_rec = save_recorder(mm_rec, "multimeter_rec",False)
 events_mm_out = save_recorder(mm_out, "multimeter_out",False)
@@ -712,6 +713,9 @@ events_wr = save_recorder(wr, "weight_evolution",False)
 save_parameters(weights_pre_train, "pretrain_weights")
 save_parameters(weights_post_train, "posttrain_weights")
 #save_parameters(results_dict, "results")
+'''
+
+
 
 #%%
 
